@@ -1,0 +1,115 @@
+import 'package:chat_app/navigation/app_navigator.dart';
+import 'package:chat_app/screens/chat.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/widgets.dart';
+
+class PushNotificationService {
+  PushNotificationService._();
+
+  static final PushNotificationService instance = PushNotificationService._();
+
+  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+
+  String? _registeredUserId;
+  bool _isInitialized = false;
+
+  Future<void> initialize() async {
+    if (_isInitialized) {
+      return;
+    }
+
+    _isInitialized = true;
+
+    await _messaging.requestPermission();
+    await _messaging.setForegroundNotificationPresentationOptions(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+
+    FirebaseAuth.instance.authStateChanges().listen(_handleAuthStateChanged);
+    _messaging.onTokenRefresh.listen((token) async {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        return;
+      }
+
+      await _registerTokenForUser(currentUser.uid, token);
+      _registeredUserId = currentUser.uid;
+    });
+    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+
+    final initialMessage = await _messaging.getInitialMessage();
+    if (initialMessage != null) {
+      _handleMessageTap(initialMessage);
+    }
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser != null) {
+      await _handleSignedInUser(currentUser);
+    }
+  }
+
+  Future<void> _handleAuthStateChanged(User? user) async {
+    if (user == null) {
+      await _removeTokenFromUser(_registeredUserId);
+      _registeredUserId = null;
+      return;
+    }
+
+    await _handleSignedInUser(user);
+  }
+
+  Future<void> _handleSignedInUser(User user) async {
+    final token = await _messaging.getToken();
+    if (token == null) {
+      return;
+    }
+
+    if (_registeredUserId != null && _registeredUserId != user.uid) {
+      await _removeTokenFromUser(_registeredUserId, tokenOverride: token);
+    }
+
+    await _registerTokenForUser(user.uid, token);
+    _registeredUserId = user.uid;
+  }
+
+  Future<void> _registerTokenForUser(String userId, String token) async {
+    await FirebaseFirestore.instance.collection('users').doc(userId).set({
+      'fcmTokens': FieldValue.arrayUnion([token]),
+    }, SetOptions(merge: true));
+  }
+
+  Future<void> _removeTokenFromUser(
+    String? userId, {
+    String? tokenOverride,
+  }) async {
+    if (userId == null) {
+      return;
+    }
+
+    final token = tokenOverride ?? await _messaging.getToken();
+    if (token == null) {
+      return;
+    }
+
+    await FirebaseFirestore.instance.collection('users').doc(userId).set({
+      'fcmTokens': FieldValue.arrayRemove([token]),
+    }, SetOptions(merge: true));
+  }
+
+  void _handleMessageTap(RemoteMessage message) {
+    if (FirebaseAuth.instance.currentUser == null) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppNavigator.navigatorKey.currentState?.pushNamedAndRemoveUntil(
+        ChatScreen.routeName,
+        (route) => false,
+      );
+    });
+  }
+}
