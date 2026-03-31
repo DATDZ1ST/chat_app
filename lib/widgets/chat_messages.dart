@@ -4,7 +4,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class ChatMessages extends StatelessWidget {
-  const ChatMessages({super.key});
+  const ChatMessages({
+    super.key,
+    required this.chatId,
+    required this.otherUserId,
+  });
+
+  final String chatId;
+  final String otherUserId;
 
   String? _readString(Map<String, dynamic>? data, List<String> keys) {
     if (data == null) {
@@ -76,7 +83,9 @@ class ChatMessages extends StatelessWidget {
 
         return StreamBuilder(
           stream: FirebaseFirestore.instance
-              .collection('chat')
+              .collection('private_chats')
+              .doc(chatId)
+              .collection('messages')
               .orderBy('createdAt', descending: true)
               .snapshots(),
           builder: (ctx, chatSnapshots) {
@@ -91,6 +100,30 @@ class ChatMessages extends StatelessWidget {
             }
 
             final loadedMessages = chatSnapshots.data!.docs;
+            String? latestReadMessageId;
+            for (final messageDoc in loadedMessages) {
+              final messageData = messageDoc.data();
+              final senderId = _readString(messageData, const ['userId']);
+              final readBy = List<String>.from(
+                messageData['readBy'] ?? const [],
+              );
+              final isLatestReadOutgoingMessage =
+                  senderId == authenticatedUser.uid &&
+                  readBy.contains(otherUserId);
+              if (isLatestReadOutgoingMessage) {
+                latestReadMessageId = messageDoc.id;
+                break;
+              }
+            }
+
+            final otherUserProfile = userProfiles[otherUserId];
+            final readReceiptUserImage = _resolveUserImage(
+              otherUserProfile,
+              const {},
+            );
+            final readReceiptUsername =
+                _resolveUsername(otherUserProfile, const {}) ?? 'User';
+
             return ListView.builder(
               padding: EdgeInsets.only(bottom: 40, left: 40, right: 40),
               reverse: true,
@@ -110,11 +143,17 @@ class ChatMessages extends StatelessWidget {
                 final username =
                     _resolveUsername(profileData, chatMessage) ?? 'User';
                 final userImage = _resolveUserImage(profileData, chatMessage);
+                final showReadReceipt =
+                    authenticatedUser.uid == currentMessageUserId &&
+                    loadedMessages[index].id == latestReadMessageId;
 
                 if (nextUserIsSame) {
                   return MessageBubble.next(
                     message: chatMessage['text'],
                     isMe: authenticatedUser.uid == currentMessageUserId,
+                    showReadReceipt: showReadReceipt,
+                    readReceiptUserImage: readReceiptUserImage,
+                    readReceiptUsername: readReceiptUsername,
                   );
                 } else {
                   return MessageBubble.first(
@@ -122,6 +161,9 @@ class ChatMessages extends StatelessWidget {
                     username: username,
                     message: chatMessage['text'],
                     isMe: authenticatedUser.uid == currentMessageUserId,
+                    showReadReceipt: showReadReceipt,
+                    readReceiptUserImage: readReceiptUserImage,
+                    readReceiptUsername: readReceiptUsername,
                   );
                 }
               },

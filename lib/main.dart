@@ -2,6 +2,7 @@ import 'package:chat_app/firebase_options.dart';
 import 'package:chat_app/navigation/app_navigator.dart';
 import 'package:chat_app/screens/auth.dart';
 import 'package:chat_app/screens/chat.dart';
+import 'package:chat_app/screens/conversation.dart';
 import 'package:chat_app/screens/splash.dart';
 import 'package:chat_app/services/push_notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -41,6 +42,16 @@ class _AppState extends State<App> {
         ),
       ),
       routes: {ChatScreen.routeName: (ctx) => const ChatScreen()},
+      onGenerateRoute: (settings) {
+        if (settings.name == ConversationScreen.routeName) {
+          final arguments = settings.arguments as ConversationScreenArguments;
+          return MaterialPageRoute(
+            builder: (context) => ConversationScreen(arguments: arguments),
+          );
+        }
+
+        return null;
+      },
       home: StreamBuilder(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (ctx, snapshot) {
@@ -49,7 +60,7 @@ class _AppState extends State<App> {
           }
 
           if (snapshot.hasData) {
-            return ChatScreen();
+            return const ChatScreen();
           }
           return AuthScreen();
         },

@@ -18,8 +18,8 @@ function splitIntoChunks(items, size) {
   return chunks;
 }
 
-exports.sendChatMessageNotification = onDocumentCreated(
-  "chat/{messageId}",
+exports.sendPrivateChatNotification = onDocumentCreated(
+  "private_chats/{chatId}/messages/{messageId}",
   async (event) => {
     if (!event.data) {
       return;
@@ -27,37 +27,48 @@ exports.sendChatMessageNotification = onDocumentCreated(
 
     const messageData = event.data.data();
     const senderId = messageData.userId;
+    const recipientId = messageData.recipientId;
     const senderName = messageData.username || "New message";
     const messageText =
       typeof messageData.text === "string" && messageData.text.trim().length > 0
         ? messageData.text.trim()
         : "Sent you a new message";
 
-    const usersSnapshot = await getFirestore().collection("users").get();
+    if (!recipientId || recipientId === senderId) {
+      logger.info("Skipping push because recipient is missing or invalid.", {
+        chatId: event.params.chatId,
+        messageId: event.params.messageId,
+      });
+      return;
+    }
+
+    const recipientDoc = await getFirestore().collection("users").doc(recipientId).get();
+    if (!recipientDoc.exists) {
+      logger.info("Recipient profile not found.", {
+        recipientId,
+        chatId: event.params.chatId,
+      });
+      return;
+    }
+
     const recipientTokens = [];
+    const tokens = recipientDoc.get("fcmTokens");
 
-    usersSnapshot.forEach((userDoc) => {
-      if (userDoc.id === senderId) {
-        return;
-      }
-
-      const tokens = userDoc.get("fcmTokens");
-      if (!Array.isArray(tokens)) {
-        return;
-      }
-
+    if (Array.isArray(tokens)) {
       tokens.forEach((token) => {
         if (typeof token === "string" && token.trim().length > 0) {
           recipientTokens.push({
-            userId: userDoc.id,
+            userId: recipientId,
             token: token.trim(),
           });
         }
       });
-    });
+    }
 
     if (recipientTokens.length === 0) {
-      logger.info("No push recipients found for new chat message.", {
+      logger.info("No push recipients found for private chat message.", {
+        chatId: event.params.chatId,
+        recipientId,
         messageId: event.params.messageId,
       });
       return;
@@ -74,8 +85,9 @@ exports.sendChatMessageNotification = onDocumentCreated(
           body: messageText,
         },
         data: {
-          screen: "chat",
-          senderId: senderId || "",
+          screen: "conversation",
+          chatId: event.params.chatId,
+          otherUserId: senderId || "",
           messageId: event.params.messageId,
         },
         android: {
@@ -100,7 +112,7 @@ exports.sendChatMessageNotification = onDocumentCreated(
         const failedToken = tokenChunk[index];
         const errorCode = sendResult.error?.code;
 
-        logger.error("Failed to send chat notification.", {
+        logger.error("Failed to send private chat notification.", {
           errorCode,
           token: failedToken?.token,
           userId: failedToken?.userId,

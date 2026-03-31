@@ -9,6 +9,9 @@ class MessageBubble extends StatelessWidget {
     required this.username,
     required this.message,
     required this.isMe,
+    this.showReadReceipt = false,
+    this.readReceiptUserImage,
+    this.readReceiptUsername,
   }) : isFirstInSequence = true;
 
   // Create a amessage bubble that continues the sequence.
@@ -16,6 +19,9 @@ class MessageBubble extends StatelessWidget {
     super.key,
     required this.message,
     required this.isMe,
+    this.showReadReceipt = false,
+    this.readReceiptUserImage,
+    this.readReceiptUsername,
   }) : isFirstInSequence = false,
        userImage = null,
        username = null;
@@ -35,6 +41,9 @@ class MessageBubble extends StatelessWidget {
   // Not required if the message is not the first in a sequence.
   final String? username;
   final String message;
+  final bool showReadReceipt;
+  final String? readReceiptUserImage;
+  final String? readReceiptUsername;
 
   // Controls how the MessageBubble will be aligned.
   final bool isMe;
@@ -48,11 +57,22 @@ class MessageBubble extends StatelessWidget {
     return trimmedUsername[0].toUpperCase();
   }
 
+  String _readReceiptAvatarLabel() {
+    final trimmedUsername = readReceiptUsername?.trim();
+    if (trimmedUsername == null || trimmedUsername.isEmpty) {
+      return '?';
+    }
+
+    return trimmedUsername[0].toUpperCase();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUserImage = userImage != null && userImage!.trim().isNotEmpty;
     final hasUsername = username != null && username!.trim().isNotEmpty;
+    final hasReadReceiptImage =
+        readReceiptUserImage != null && readReceiptUserImage!.trim().isNotEmpty;
 
     return Stack(
       children: [
@@ -153,6 +173,27 @@ class MessageBubble extends StatelessWidget {
                       softWrap: true,
                     ),
                   ),
+                  if (isMe && showReadReceipt)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 14, top: 2),
+                      child: CircleAvatar(
+                        foregroundImage: hasReadReceiptImage
+                            ? NetworkImage(readReceiptUserImage!)
+                            : null,
+                        backgroundColor: theme.colorScheme.primaryContainer,
+                        radius: 8,
+                        child: hasReadReceiptImage
+                            ? null
+                            : Text(
+                                _readReceiptAvatarLabel(),
+                                style: TextStyle(
+                                  color: theme.colorScheme.onPrimaryContainer,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                      ),
+                    ),
                 ],
               ),
             ],

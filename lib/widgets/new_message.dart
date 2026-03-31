@@ -3,7 +3,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 class NewMessage extends StatefulWidget {
-  const NewMessage({super.key});
+  const NewMessage({
+    super.key,
+    required this.chatId,
+    required this.otherUserId,
+  });
+
+  final String chatId;
+  final String otherUserId;
+
   @override
   State<NewMessage> createState() {
     return _NewMessageState();
@@ -75,13 +83,31 @@ class _NewMessageState extends State<NewMessage> {
       if (userImage != null) 'image_url': userImage,
     }, SetOptions(merge: true));
 
-    await FirebaseFirestore.instance.collection('chat').add({
-      'text': enteredMessage,
-      'createdAt': Timestamp.now(),
-      'userId': user.uid,
-      'username': username,
-      'userImage': userImage ?? '',
-    });
+    final participants = [user.uid, widget.otherUserId]..sort();
+
+    await FirebaseFirestore.instance
+        .collection('private_chats')
+        .doc(widget.chatId)
+        .set({
+          'participants': participants,
+          'updatedAt': Timestamp.now(),
+          'lastMessage': enteredMessage,
+          'lastMessageSenderId': user.uid,
+        }, SetOptions(merge: true));
+
+    await FirebaseFirestore.instance
+        .collection('private_chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .add({
+          'text': enteredMessage,
+          'createdAt': Timestamp.now(),
+          'userId': user.uid,
+          'username': username,
+          'userImage': userImage ?? '',
+          'recipientId': widget.otherUserId,
+          'readBy': [user.uid],
+        });
   }
 
   @override

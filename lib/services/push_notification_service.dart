@@ -1,4 +1,5 @@
 import 'package:chat_app/navigation/app_navigator.dart';
+import 'package:chat_app/screens/conversation.dart';
 import 'package:chat_app/screens/chat.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -105,11 +106,29 @@ class PushNotificationService {
       return;
     }
 
+    final chatId = message.data['chatId'];
+    final otherUserId = message.data['otherUserId'];
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      AppNavigator.navigatorKey.currentState?.pushNamedAndRemoveUntil(
-        ChatScreen.routeName,
-        (route) => false,
-      );
+      final navigator = AppNavigator.navigatorKey.currentState;
+      if (navigator == null) {
+        return;
+      }
+
+      navigator.pushNamedAndRemoveUntil(ChatScreen.routeName, (route) => false);
+
+      if (chatId is String &&
+          chatId.isNotEmpty &&
+          otherUserId is String &&
+          otherUserId.isNotEmpty) {
+        navigator.pushNamed(
+          ConversationScreen.routeName,
+          arguments: ConversationScreenArguments(
+            chatId: chatId,
+            otherUserId: otherUserId,
+          ),
+        );
+      }
     });
   }
 }
