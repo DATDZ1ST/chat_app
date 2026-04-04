@@ -463,7 +463,7 @@ class _NewMessageState extends State<NewMessage> {
 
     final hasPermission = await _audioRecorder.hasPermission();
     if (!hasPermission) {
-      throw Exception('?ng d?ng ch?a ???c c?p quy?n microphone.');
+      throw Exception('Cấp quyền microphone.');
     }
 
     final tempDir = await getTemporaryDirectory();
@@ -541,15 +541,6 @@ class _NewMessageState extends State<NewMessage> {
     }
   }
 
-  Future<void> _toggleVoiceRecording() async {
-    if (_isRecordingVoice) {
-      await _stopVoiceRecordingAndSend();
-      return;
-    }
-
-    await _startVoiceRecording();
-  }
-
   Future<void> _showPlusActions() async {
     _messageFocusNode.unfocus();
     await showModalBottomSheet<void>(
@@ -577,30 +568,6 @@ class _NewMessageState extends State<NewMessage> {
                 leading: const Icon(Icons.share_location_outlined),
                 title: const Text('Chia sẻ vị trí 1 tiếng'),
                 onTap: () => handleAction(_shareLiveLocationForOneHour),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt_outlined),
-                title: const Text('Chụp ảnh'),
-                onTap: () =>
-                    handleAction(() => _sendPickedImage(ImageSource.camera)),
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library_outlined),
-                title: const Text('Ch?n ?nh/video t? m?y'),
-                onTap: () => handleAction(_sendPickedGalleryMedia),
-              ),
-              ListTile(
-                leading: Icon(
-                  _isRecordingVoice
-                      ? Icons.stop_circle_outlined
-                      : Icons.mic_none_rounded,
-                ),
-                title: Text(
-                  _isRecordingVoice
-                      ? 'Dừng và gửi voice'
-                      : 'Gửi voice tin nhắn',
-                ),
-                onTap: () => handleAction(_toggleVoiceRecording),
               ),
             ],
           ),
