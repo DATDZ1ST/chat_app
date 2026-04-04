@@ -2,6 +2,7 @@ import 'package:chat_app/firebase_options.dart';
 import 'package:chat_app/navigation/app_navigator.dart';
 import 'package:chat_app/screens/auth.dart';
 import 'package:chat_app/screens/chat.dart';
+import 'package:chat_app/screens/change_password.dart';
 import 'package:chat_app/screens/conversation.dart';
 import 'package:chat_app/screens/splash.dart';
 import 'package:chat_app/services/push_notification_service.dart';
@@ -34,7 +35,7 @@ class _AppState extends State<App> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: AppNavigator.navigatorKey,
-      title: 'FlutterChat',
+      title: 'Datdz',
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -43,6 +44,12 @@ class _AppState extends State<App> {
       ),
       routes: {ChatScreen.routeName: (ctx) => const ChatScreen()},
       onGenerateRoute: (settings) {
+        if (settings.name == ChangePasswordScreen.routeName) {
+          return MaterialPageRoute(
+            builder: (context) => const ChangePasswordScreen(),
+          );
+        }
+
         if (settings.name == ConversationScreen.routeName) {
           final arguments = settings.arguments as ConversationScreenArguments;
           return MaterialPageRoute(

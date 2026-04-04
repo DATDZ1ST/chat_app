@@ -13,7 +13,6 @@ class PushNotificationService {
 
   final FirebaseMessaging _messaging = FirebaseMessaging.instance;
 
-  String? _registeredUserId;
   bool _isInitialized = false;
 
   Future<void> initialize() async {
@@ -30,15 +29,21 @@ class PushNotificationService {
       sound: true,
     );
 
-    FirebaseAuth.instance.authStateChanges().listen(_handleAuthStateChanged);
+    FirebaseAuth.instance.authStateChanges().listen((user) {
+      _handleAuthStateChanged(user);
+    });
     _messaging.onTokenRefresh.listen((token) async {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
         return;
       }
 
-      await _registerTokenForUser(currentUser.uid, token);
-      _registeredUserId = currentUser.uid;
+      try {
+        await _registerTokenForUser(currentUser.uid, token);
+      } catch (error, stackTrace) {
+        debugPrint('Failed to refresh FCM token registration: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     });
     FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
 
@@ -55,12 +60,15 @@ class PushNotificationService {
 
   Future<void> _handleAuthStateChanged(User? user) async {
     if (user == null) {
-      await _removeTokenFromUser(_registeredUserId);
-      _registeredUserId = null;
       return;
     }
 
-    await _handleSignedInUser(user);
+    try {
+      await _handleSignedInUser(user);
+    } catch (error, stackTrace) {
+      debugPrint('Failed to sync signed-in user token: $error');
+      debugPrintStack(stackTrace: stackTrace);
+    }
   }
 
   Future<void> _handleSignedInUser(User user) async {
@@ -69,12 +77,22 @@ class PushNotificationService {
       return;
     }
 
-    if (_registeredUserId != null && _registeredUserId != user.uid) {
-      await _removeTokenFromUser(_registeredUserId, tokenOverride: token);
+    await _registerTokenForUser(user.uid, token);
+  }
+
+  Future<void> signOutCurrentUser() async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+
+    if (currentUserId != null) {
+      try {
+        await _removeTokenFromUser(currentUserId);
+      } catch (error, stackTrace) {
+        debugPrint('Failed to unregister FCM token before sign out: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
     }
 
-    await _registerTokenForUser(user.uid, token);
-    _registeredUserId = user.uid;
+    await FirebaseAuth.instance.signOut();
   }
 
   Future<void> _registerTokenForUser(String userId, String token) async {

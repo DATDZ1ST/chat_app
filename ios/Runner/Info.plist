@@ -45,5 +45,15 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to capture photos in chat.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>This app needs photo library access to choose images or videos in chat.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>This app needs photo library access to save images and videos from chat.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>This app needs microphone access to record and send voice messages.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app needs location access to share current and live location with Goong Map.</string>
 </dict>
 </plist>

@@ -18,6 +18,34 @@ class CloudinaryService {
     required String publicId,
     String folder = 'user_images',
   }) async {
+    return _uploadFile(
+      imageFile,
+      publicId: publicId,
+      folder: folder,
+      resourceType: 'image',
+    );
+  }
+
+  static Future<String> uploadMedia(
+    File mediaFile, {
+    required String publicId,
+    required String folder,
+    String resourceType = 'auto',
+  }) async {
+    return _uploadFile(
+      mediaFile,
+      publicId: publicId,
+      folder: folder,
+      resourceType: resourceType,
+    );
+  }
+
+  static Future<String> _uploadFile(
+    File file, {
+    required String publicId,
+    required String folder,
+    required String resourceType,
+  }) async {
     if (_cloudName.isEmpty || _uploadPreset.isEmpty) {
       throw Exception(
         'Missing Cloudinary config. Run the app with '
@@ -30,15 +58,13 @@ class CloudinaryService {
         http.MultipartRequest(
             'POST',
             Uri.parse(
-              'https://api.cloudinary.com/v1_1/$_cloudName/image/upload',
+              'https://api.cloudinary.com/v1_1/$_cloudName/$resourceType/upload',
             ),
           )
           ..fields['upload_preset'] = _uploadPreset
           ..fields['folder'] = folder
           ..fields['public_id'] = publicId
-          ..files.add(
-            await http.MultipartFile.fromPath('file', imageFile.path),
-          );
+          ..files.add(await http.MultipartFile.fromPath('file', file.path));
 
     final response = await request.send();
     final body = await response.stream.bytesToString();

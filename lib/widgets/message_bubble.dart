@@ -1,24 +1,29 @@
 import 'package:flutter/material.dart';
 
-// A MessageBubble for showing a single chat message on the ChatScreen.
 class MessageBubble extends StatelessWidget {
-  // Create a message bubble which is meant to be the first in the sequence.
   const MessageBubble.first({
     super.key,
     required this.userImage,
     required this.username,
     required this.message,
+    this.content,
     required this.isMe,
+    this.onTap,
+    this.onLongPress,
+    this.isDeletedForEveryone = false,
     this.showReadReceipt = false,
     this.readReceiptUserImage,
     this.readReceiptUsername,
   }) : isFirstInSequence = true;
 
-  // Create a amessage bubble that continues the sequence.
   const MessageBubble.next({
     super.key,
     required this.message,
+    this.content,
     required this.isMe,
+    this.onTap,
+    this.onLongPress,
+    this.isDeletedForEveryone = false,
     this.showReadReceipt = false,
     this.readReceiptUserImage,
     this.readReceiptUsername,
@@ -26,26 +31,17 @@ class MessageBubble extends StatelessWidget {
        userImage = null,
        username = null;
 
-  // Whether or not this message bubble is the first in a sequence of messages
-  // from the same user.
-  // Modifies the message bubble slightly for these different cases - only
-  // shows user image for the first message from the same user, and changes
-  // the shape of the bubble for messages thereafter.
   final bool isFirstInSequence;
-
-  // Image of the user to be displayed next to the bubble.
-  // Not required if the message is not the first in a sequence.
   final String? userImage;
-
-  // Username of the user.
-  // Not required if the message is not the first in a sequence.
   final String? username;
   final String message;
+  final Widget? content;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+  final bool isDeletedForEveryone;
   final bool showReadReceipt;
   final String? readReceiptUserImage;
   final String? readReceiptUsername;
-
-  // Controls how the MessageBubble will be aligned.
   final bool isMe;
 
   String _avatarLabel() {
@@ -57,146 +53,131 @@ class MessageBubble extends StatelessWidget {
     return trimmedUsername[0].toUpperCase();
   }
 
-  String _readReceiptAvatarLabel() {
-    final trimmedUsername = readReceiptUsername?.trim();
-    if (trimmedUsername == null || trimmedUsername.isEmpty) {
-      return '?';
-    }
+  String _wrapLongText(String text, int chunkSize) {
+    final longTokenPattern = RegExp('.{1,$chunkSize}', dotAll: true);
 
-    return trimmedUsername[0].toUpperCase();
+    return text.splitMapJoin(
+      RegExp(r'\S+'),
+      onMatch: (match) {
+        final token = match.group(0)!;
+        if (token.length <= chunkSize) {
+          return token;
+        }
+
+        return longTokenPattern
+            .allMatches(token)
+            .map((chunkMatch) => chunkMatch.group(0)!)
+            .join('\u200B');
+      },
+      onNonMatch: (value) => value,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final hasUserImage = userImage != null && userImage!.trim().isNotEmpty;
-    final hasUsername = username != null && username!.trim().isNotEmpty;
-    final hasReadReceiptImage =
-        readReceiptUserImage != null && readReceiptUserImage!.trim().isNotEmpty;
+    final showSenderAvatar = !isMe && isFirstInSequence;
 
     return Stack(
       children: [
-        if (isFirstInSequence)
+        if (showSenderAvatar)
           Positioned(
             top: 15,
-            // Align user image to the right, if the message is from me.
-            right: isMe ? 0 : null,
             child: CircleAvatar(
               foregroundImage: hasUserImage ? NetworkImage(userImage!) : null,
               backgroundColor: theme.colorScheme.primaryContainer,
-              radius: 23,
+              radius: 19,
               child: hasUserImage
                   ? null
                   : Text(
                       _avatarLabel(),
                       style: TextStyle(
                         color: theme.colorScheme.onPrimaryContainer,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
             ),
           ),
         Container(
-          // Add some margin to the edges of the messages, to allow space for the
-          // user's image.
-          margin: const EdgeInsets.symmetric(horizontal: 46),
-          child: Row(
-            // The side of the chat screen the message should show at.
-            mainAxisAlignment: isMe
-                ? MainAxisAlignment.end
-                : MainAxisAlignment.start,
-            children: [
-              Column(
-                crossAxisAlignment: isMe
-                    ? CrossAxisAlignment.end
-                    : CrossAxisAlignment.start,
+          width: double.infinity,
+          margin: EdgeInsets.only(left: 42, right: isMe ? 2 : 42),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final maxBubbleWidth = constraints.maxWidth * 0.7;
+              final estimatedChunkSize = (maxBubbleWidth / 11).floor();
+              final safeChunkSize = estimatedChunkSize < 18
+                  ? 18
+                  : estimatedChunkSize;
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // First messages in the sequence provide a visual buffer at
-                  // the top.
-                  if (isFirstInSequence) const SizedBox(height: 18),
-                  if (hasUsername)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 13, right: 13),
-                      child: Text(
-                        username!.trim(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black87,
+                  Row(
+                    mainAxisAlignment: isMe
+                        ? MainAxisAlignment.end
+                        : MainAxisAlignment.start,
+                    children: [
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: maxBubbleWidth),
+                        child: Column(
+                          crossAxisAlignment: isMe
+                              ? CrossAxisAlignment.end
+                              : CrossAxisAlignment.start,
+                          children: [
+                            if (isFirstInSequence) const SizedBox(height: 18),
+                            GestureDetector(
+                              onTap: onTap,
+                              onLongPress: onLongPress,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  color: isMe
+                                      ? Colors.grey[300]
+                                      : theme.colorScheme.secondary.withAlpha(
+                                          200,
+                                        ),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(12),
+                                    topRight: const Radius.circular(12),
+                                    bottomLeft: !isMe && isFirstInSequence
+                                        ? Radius.zero
+                                        : const Radius.circular(12),
+                                    bottomRight: isMe && isFirstInSequence
+                                        ? Radius.zero
+                                        : const Radius.circular(12),
+                                  ),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 14,
+                                ),
+                                margin: const EdgeInsets.symmetric(vertical: 4),
+                                child:
+                                    content ??
+                                    Text(
+                                      _wrapLongText(message, safeChunkSize),
+                                      style: TextStyle(
+                                        height: 1.3,
+                                        fontStyle: isDeletedForEveryone
+                                            ? FontStyle.italic
+                                            : FontStyle.normal,
+                                        color: isMe
+                                            ? Colors.black87
+                                            : theme.colorScheme.onSecondary,
+                                      ),
+                                      softWrap: true,
+                                    ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                    ),
-
-                  // The "speech" box surrounding the message.
-                  Container(
-                    decoration: BoxDecoration(
-                      color: isMe
-                          ? Colors.grey[300]
-                          : theme.colorScheme.secondary.withAlpha(200),
-                      // Only show the message bubble's "speaking edge" if first in
-                      // the chain.
-                      // Whether the "speaking edge" is on the left or right depends
-                      // on whether or not the message bubble is the current user.
-                      borderRadius: BorderRadius.only(
-                        topLeft: !isMe && isFirstInSequence
-                            ? Radius.zero
-                            : const Radius.circular(12),
-                        topRight: isMe && isFirstInSequence
-                            ? Radius.zero
-                            : const Radius.circular(12),
-                        bottomLeft: const Radius.circular(12),
-                        bottomRight: const Radius.circular(12),
-                      ),
-                    ),
-                    // Set some reasonable constraints on the width of the
-                    // message bubble so it can adjust to the amount of text
-                    // it should show.
-                    constraints: const BoxConstraints(maxWidth: 200),
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 10,
-                      horizontal: 14,
-                    ),
-                    // Margin around the bubble.
-                    margin: const EdgeInsets.symmetric(
-                      vertical: 4,
-                      horizontal: 12,
-                    ),
-                    child: Text(
-                      message,
-                      style: TextStyle(
-                        // Add a little line spacing to make the text look nicer
-                        // when multilined.
-                        height: 1.3,
-                        color: isMe
-                            ? Colors.black87
-                            : theme.colorScheme.onSecondary,
-                      ),
-                      softWrap: true,
-                    ),
+                    ],
                   ),
-                  if (isMe && showReadReceipt)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 14, top: 2),
-                      child: CircleAvatar(
-                        foregroundImage: hasReadReceiptImage
-                            ? NetworkImage(readReceiptUserImage!)
-                            : null,
-                        backgroundColor: theme.colorScheme.primaryContainer,
-                        radius: 8,
-                        child: hasReadReceiptImage
-                            ? null
-                            : Text(
-                                _readReceiptAvatarLabel(),
-                                style: TextStyle(
-                                  color: theme.colorScheme.onPrimaryContainer,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                      ),
-                    ),
                 ],
-              ),
-            ],
+              );
+            },
           ),
         ),
       ],

@@ -16,9 +16,10 @@ class UserImagePicker extends StatefulWidget {
 
 class _UserImagePicker extends State<UserImagePicker> {
   File? _pickedImageFile;
-  void _pickImage() async {
+
+  Future<void> _pickImage(ImageSource source) async {
     final pickedImage = await ImagePicker().pickImage(
-      source: ImageSource.camera,
+      source: source,
       imageQuality: 50,
       maxWidth: 150,
     );
@@ -29,6 +30,36 @@ class _UserImagePicker extends State<UserImagePicker> {
       _pickedImageFile = File(pickedImage.path);
     });
     widget.onPickImage(_pickedImageFile!);
+  }
+
+  Future<void> _showImageSourcePicker() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (context) {
+        return SafeArea(
+          child: Wrap(
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_camera),
+                title: const Text('Take Photo'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Choose from Gallery'),
+                onTap: () async {
+                  Navigator.of(context).pop();
+                  await _pickImage(ImageSource.gallery);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -43,10 +74,10 @@ class _UserImagePicker extends State<UserImagePicker> {
               : null,
         ),
         TextButton.icon(
-          onPressed: _pickImage,
-          icon: Icon(Icons.image),
+          onPressed: _showImageSourcePicker,
+          icon: const Icon(Icons.image),
           label: Text(
-            'Add Image',
+            'Thêm avatar',
             style: TextStyle(color: Theme.of(context).colorScheme.primary),
           ),
         ),
