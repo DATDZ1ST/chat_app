@@ -289,6 +289,63 @@ class _ChatScreenState extends State<ChatScreen> {
     return _readStringList(chatData, 'hiddenFor').contains(_currentUser.uid);
   }
 
+  bool _hasIncomingMessageAfterClear({
+    required String chatId,
+    required Map<String, dynamic>? chatData,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allMessageDocs,
+  }) {
+    final clearedAt = _readConversationClearedAt(chatData, _currentUser.uid);
+    if (clearedAt == null) {
+      return false;
+    }
+
+    final clearedAtMillis = clearedAt.millisecondsSinceEpoch;
+
+    for (final messageDoc in allMessageDocs) {
+      final messageChatId = messageDoc.reference.parent.parent?.id;
+      if (messageChatId != chatId) {
+        continue;
+      }
+
+      final messageData = messageDoc.data();
+      final senderId = _readString(messageData, const ['userId']);
+      if (senderId == null || senderId == _currentUser.uid) {
+        continue;
+      }
+
+      if (messageData['deletedForEveryone'] == true) {
+        continue;
+      }
+
+      final createdAt = messageData['createdAt'];
+      if (createdAt is! Timestamp) {
+        continue;
+      }
+
+      if (createdAt.millisecondsSinceEpoch > clearedAtMillis) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _isConversationEffectivelyHidden({
+    required String chatId,
+    required Map<String, dynamic>? chatData,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allMessageDocs,
+  }) {
+    if (!_isConversationHiddenForCurrentUser(chatData)) {
+      return false;
+    }
+
+    return !_hasIncomingMessageAfterClear(
+      chatId: chatId,
+      chatData: chatData,
+      allMessageDocs: allMessageDocs,
+    );
+  }
+
   bool _wasMessageClearedForCurrentUser(
     Map<String, dynamic> messageData,
     Timestamp? clearedAt,
@@ -605,7 +662,11 @@ class _ChatScreenState extends State<ChatScreen> {
           userImage: userImage,
           matches: matches,
           isArchived: _isConversationArchivedForCurrentUser(chatData),
-          isHidden: _isConversationHiddenForCurrentUser(chatData),
+          isHidden: _isConversationEffectivelyHidden(
+            chatId: requestDoc.id,
+            chatData: chatData,
+            allMessageDocs: allMessageDocs,
+          ),
         ),
       );
     }
@@ -1406,7 +1467,19 @@ class _ChatScreenState extends State<ChatScreen> {
                 );
               } else if (isOutgoingPending) {
                 subtitle = 'Đã gửi yêu cầu kết bạn';
-                trailing = const Text('Đã gửi');
+                trailing = Wrap(
+                  spacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Text('Đã gửi'),
+                    TextButton(
+                      onPressed: existingRequest == null
+                          ? null
+                          : () => _rejectFriendRequest(existingRequest.id),
+                      child: const Text('Hủy'),
+                    ),
+                  ],
+                );
               } else {
                 trailing = ElevatedButton(
                   onPressed: () => _sendFriendRequest(userDoc.id),
@@ -1449,7 +1522,11 @@ class _ChatScreenState extends State<ChatScreen> {
           !_isConversationArchivedForCurrentUser(
             privateChatById[requestDoc.id],
           ) &&
-          !_isConversationHiddenForCurrentUser(privateChatById[requestDoc.id]);
+          !_isConversationEffectivelyHidden(
+            chatId: requestDoc.id,
+            chatData: privateChatById[requestDoc.id],
+            allMessageDocs: allMessageDocs,
+          );
     }).toList();
 
     if (visibleRequests.isEmpty) {
@@ -1687,7 +1764,19 @@ class _ChatScreenState extends State<ChatScreen> {
               ],
             );
           } else if (isOutgoingPending) {
-            trailing = const Text('Đã gửi');
+            trailing = Wrap(
+              spacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text('Đã gửi'),
+                TextButton(
+                  onPressed: existingRequest == null
+                      ? null
+                      : () => _rejectFriendRequest(existingRequest.id),
+                  child: const Text('Hủy'),
+                ),
+              ],
+            );
           } else {
             trailing = ElevatedButton(
               onPressed: () => _sendFriendRequest(userDoc.id),
