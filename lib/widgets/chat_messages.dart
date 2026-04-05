@@ -342,7 +342,7 @@ class ChatMessagesState extends State<ChatMessages> {
         _showSnackBar(
           isVideo
               ? 'Chưa được cấp quyền lưu video.'
-              : 'Chưa được cấp quyền lưu anh.',
+              : 'Chưa được cấp quyền lưu ảnh.',
         );
         return;
       }
@@ -369,20 +369,20 @@ class ChatMessagesState extends State<ChatMessages> {
         GalExceptionType.accessDenied =>
           isVideo
               ? 'Chưa được cấp quyền lưu video.'
-              : 'Chưa được cấp quyền lưu anh.',
+              : 'Chưa được cấp quyền lưu ảnh.',
         GalExceptionType.notSupportedFormat =>
           isVideo
               ? 'Định dạng video không được hỗ trợ.'
               : 'Định dạng ảnh không được hỗ trợ.',
         GalExceptionType.notEnoughSpace => 'Không đủ bộ nhớ để lưu tệp.',
         GalExceptionType.unexpected =>
-          isVideo ? 'Không lưu được video.' : 'Không lưu được anh.',
+          isVideo ? 'Không lưu được video.' : 'Không lưu được ảnh.',
       };
       _showSnackBar(message);
     } catch (error, stackTrace) {
       debugPrint('Save media failed: $error');
       debugPrintStack(stackTrace: stackTrace);
-      _showSnackBar(isVideo ? 'Không lưu được video.' : 'Không lưu được anh.');
+      _showSnackBar(isVideo ? 'Không lưu được video.' : 'Không lưu được ảnh.');
     } finally {
       if (tempFile != null && await tempFile.exists()) {
         await tempFile.delete();
@@ -1091,10 +1091,14 @@ class ChatMessagesState extends State<ChatMessages> {
                       chatMessage,
                     );
                     final isMe = authenticatedUser.uid == currentMessageUserId;
+                    final messageType = _messageType(chatMessage);
                     final messageText = _messageText(chatMessage);
                     final messageContent = isDeletedForEveryone
                         ? null
                         : _buildMessageContent(chatMessage, isMe: isMe);
+                    final isBorderlessMedia =
+                        !isDeletedForEveryone &&
+                        (messageType == 'image' || messageType == 'video');
                     final reactions = isDeletedForEveryone
                         ? <String, String>{}
                         : _readReactions(chatMessage);
@@ -1114,6 +1118,7 @@ class ChatMessagesState extends State<ChatMessages> {
                             message: messageText,
                             content: messageContent,
                             isMe: isMe,
+                            isBorderlessMedia: isBorderlessMedia,
                             onTap: () => _toggleTimestamp(messageDoc.id),
                             isDeletedForEveryone: isDeletedForEveryone,
                             onLongPress: () => _showMessageActions(
@@ -1131,6 +1136,7 @@ class ChatMessagesState extends State<ChatMessages> {
                             message: messageText,
                             content: messageContent,
                             isMe: isMe,
+                            isBorderlessMedia: isBorderlessMedia,
                             onTap: () => _toggleTimestamp(messageDoc.id),
                             isDeletedForEveryone: isDeletedForEveryone,
                             onLongPress: () => _showMessageActions(

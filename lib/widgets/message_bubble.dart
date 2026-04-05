@@ -1,4 +1,6 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MessageBubble extends StatelessWidget {
   const MessageBubble.first({
@@ -10,6 +12,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMe,
     this.onTap,
     this.onLongPress,
+    this.isBorderlessMedia = false,
     this.isDeletedForEveryone = false,
     this.showReadReceipt = false,
     this.readReceiptUserImage,
@@ -23,6 +26,7 @@ class MessageBubble extends StatelessWidget {
     required this.isMe,
     this.onTap,
     this.onLongPress,
+    this.isBorderlessMedia = false,
     this.isDeletedForEveryone = false,
     this.showReadReceipt = false,
     this.readReceiptUserImage,
@@ -38,6 +42,7 @@ class MessageBubble extends StatelessWidget {
   final Widget? content;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+  final bool isBorderlessMedia;
   final bool isDeletedForEveryone;
   final bool showReadReceipt;
   final String? readReceiptUserImage;
@@ -51,26 +56,6 @@ class MessageBubble extends StatelessWidget {
     }
 
     return trimmedUsername[0].toUpperCase();
-  }
-
-  String _wrapLongText(String text, int chunkSize) {
-    final longTokenPattern = RegExp('.{1,$chunkSize}', dotAll: true);
-
-    return text.splitMapJoin(
-      RegExp(r'\S+'),
-      onMatch: (match) {
-        final token = match.group(0)!;
-        if (token.length <= chunkSize) {
-          return token;
-        }
-
-        return longTokenPattern
-            .allMatches(token)
-            .map((chunkMatch) => chunkMatch.group(0)!)
-            .join('\u200B');
-      },
-      onNonMatch: (value) => value,
-    );
   }
 
   @override
@@ -131,32 +116,36 @@ class MessageBubble extends StatelessWidget {
                               onTap: onTap,
                               onLongPress: onLongPress,
                               child: Container(
-                                decoration: BoxDecoration(
-                                  color: isMe
-                                      ? Colors.grey[300]
-                                      : theme.colorScheme.secondary.withAlpha(
-                                          200,
+                                decoration: isBorderlessMedia
+                                    ? null
+                                    : BoxDecoration(
+                                        color: isMe
+                                            ? Colors.grey[300]
+                                            : theme.colorScheme.secondary
+                                                  .withAlpha(200),
+                                        borderRadius: BorderRadius.only(
+                                          topLeft: const Radius.circular(12),
+                                          topRight: const Radius.circular(12),
+                                          bottomLeft: !isMe && isFirstInSequence
+                                              ? Radius.zero
+                                              : const Radius.circular(12),
+                                          bottomRight: isMe && isFirstInSequence
+                                              ? Radius.zero
+                                              : const Radius.circular(12),
                                         ),
-                                  borderRadius: BorderRadius.only(
-                                    topLeft: const Radius.circular(12),
-                                    topRight: const Radius.circular(12),
-                                    bottomLeft: !isMe && isFirstInSequence
-                                        ? Radius.zero
-                                        : const Radius.circular(12),
-                                    bottomRight: isMe && isFirstInSequence
-                                        ? Radius.zero
-                                        : const Radius.circular(12),
-                                  ),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                  horizontal: 14,
-                                ),
+                                      ),
+                                padding: isBorderlessMedia
+                                    ? EdgeInsets.zero
+                                    : const EdgeInsets.symmetric(
+                                        vertical: 10,
+                                        horizontal: 14,
+                                      ),
                                 margin: const EdgeInsets.symmetric(vertical: 4),
                                 child:
                                     content ??
-                                    Text(
-                                      _wrapLongText(message, safeChunkSize),
+                                    _LinkifiedMessageText(
+                                      message: message,
+                                      chunkSize: safeChunkSize,
                                       style: TextStyle(
                                         height: 1.3,
                                         fontStyle: isDeletedForEveryone
@@ -166,7 +155,6 @@ class MessageBubble extends StatelessWidget {
                                             ? Colors.black87
                                             : theme.colorScheme.onSecondary,
                                       ),
-                                      softWrap: true,
                                     ),
                               ),
                             ),
@@ -181,6 +169,135 @@ class MessageBubble extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LinkifiedMessageText extends StatefulWidget {
+  const _LinkifiedMessageText({
+    required this.message,
+    required this.chunkSize,
+    required this.style,
+  });
+
+  final String message;
+  final int chunkSize;
+  final TextStyle style;
+
+  @override
+  State<_LinkifiedMessageText> createState() => _LinkifiedMessageTextState();
+}
+
+class _LinkifiedMessageTextState extends State<_LinkifiedMessageText> {
+  static final RegExp _urlPattern = RegExp(
+    r'((https?:\/\/|www\.)[^\s]+)',
+    caseSensitive: false,
+  );
+
+  final List<TapGestureRecognizer> _recognizers = <TapGestureRecognizer>[];
+
+  @override
+  void dispose() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    super.dispose();
+  }
+
+  String _wrapLongText(String text) {
+    final longTokenPattern = RegExp('.{1,${widget.chunkSize}}', dotAll: true);
+
+    return text.splitMapJoin(
+      RegExp(r'\S+'),
+      onMatch: (match) {
+        final token = match.group(0)!;
+        if (token.length <= widget.chunkSize) {
+          return token;
+        }
+
+        return longTokenPattern
+            .allMatches(token)
+            .map((chunkMatch) => chunkMatch.group(0)!)
+            .join('\u200B');
+      },
+      onNonMatch: (value) => value,
+    );
+  }
+
+  Future<void> _openUrl(String rawUrl) async {
+    final normalizedUrl = rawUrl.startsWith(RegExp(r'https?:\/\/'))
+        ? rawUrl
+        : 'https://$rawUrl';
+    final uri = Uri.tryParse(normalizedUrl);
+
+    if (uri == null) {
+      return;
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!mounted || launched) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Không mở được đường link.')));
+  }
+
+  List<InlineSpan> _buildSpans() {
+    for (final recognizer in _recognizers) {
+      recognizer.dispose();
+    }
+    _recognizers.clear();
+
+    final spans = <InlineSpan>[];
+    var start = 0;
+
+    for (final match in _urlPattern.allMatches(widget.message)) {
+      if (match.start > start) {
+        spans.add(
+          TextSpan(
+            text: _wrapLongText(widget.message.substring(start, match.start)),
+          ),
+        );
+      }
+
+      final urlText = match.group(0)!;
+      final recognizer = TapGestureRecognizer()
+        ..onTap = () {
+          _openUrl(urlText);
+        };
+      _recognizers.add(recognizer);
+
+      spans.add(
+        TextSpan(
+          text: _wrapLongText(urlText),
+          style: widget.style.copyWith(
+            color: Colors.blueAccent,
+            decoration: TextDecoration.underline,
+          ),
+          recognizer: recognizer,
+        ),
+      );
+      start = match.end;
+    }
+
+    if (start < widget.message.length) {
+      spans.add(TextSpan(text: _wrapLongText(widget.message.substring(start))));
+    }
+
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: _wrapLongText(widget.message)));
+    }
+
+    return spans;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RichText(
+      text: TextSpan(style: widget.style, children: _buildSpans()),
+      softWrap: true,
     );
   }
 }

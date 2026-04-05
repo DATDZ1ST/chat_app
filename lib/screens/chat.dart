@@ -240,6 +240,25 @@ class _ChatScreenState extends State<ChatScreen> {
     return null;
   }
 
+  String _buildDefaultAvatarUrl({
+    required String username,
+    required String email,
+  }) {
+    final seed = username.trim().isNotEmpty
+        ? username.trim()
+        : (email.contains('@') ? email.split('@').first.trim() : 'User');
+    final encodedSeed = Uri.encodeComponent(seed.isEmpty ? 'User' : seed);
+    return 'https://ui-avatars.com/api/?name=$encodedSeed&background=8b7fc4&color=ffffff&size=256';
+  }
+
+  bool _isDefaultAvatarUrl(String? imageUrl) {
+    if (imageUrl == null || imageUrl.trim().isEmpty) {
+      return true;
+    }
+
+    return imageUrl.contains('ui-avatars.com/api/');
+  }
+
   List<String> _readStringList(Map<String, dynamic>? data, String key) {
     final value = data?[key];
     if (value is! Iterable) {
@@ -661,6 +680,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _currentUser.photoURL;
     final nameController = TextEditingController(text: currentUsername);
     File? selectedImageFile;
+    bool useDefaultAvatar = _isDefaultAvatarUrl(currentImageUrl);
     bool isSaving = false;
 
     await showModalBottomSheet<void>(
@@ -680,13 +700,19 @@ class _ChatScreenState extends State<ChatScreen> {
               });
 
               try {
-                String? imageUrl = currentImageUrl;
+                String imageUrl = currentImageUrl?.trim() ?? '';
+                final defaultAvatarUrl = _buildDefaultAvatarUrl(
+                  username: trimmedName,
+                  email: currentEmail,
+                );
                 if (selectedImageFile != null) {
                   imageUrl = await CloudinaryService.uploadImage(
                     selectedImageFile!,
                     publicId:
                         'profile_${_currentUser.uid}_${DateTime.now().millisecondsSinceEpoch}',
                   );
+                } else if (useDefaultAvatar || imageUrl.isEmpty) {
+                  imageUrl = defaultAvatarUrl;
                 }
 
                 await FirebaseFirestore.instance
@@ -694,13 +720,13 @@ class _ChatScreenState extends State<ChatScreen> {
                     .doc(_currentUser.uid)
                     .set({
                       'username': trimmedName,
-                      if (imageUrl != null) 'image_url': imageUrl,
+                      'image_url': imageUrl,
                     }, SetOptions(merge: true));
 
                 if (_currentUser.displayName != trimmedName) {
                   await _currentUser.updateDisplayName(trimmedName);
                 }
-                if (imageUrl != null && _currentUser.photoURL != imageUrl) {
+                if (_currentUser.photoURL != imageUrl) {
                   await _currentUser.updatePhotoURL(imageUrl);
                 }
 
@@ -740,10 +766,18 @@ class _ChatScreenState extends State<ChatScreen> {
               }
             }
 
+            final previewImageUrl = useDefaultAvatar
+                ? _buildDefaultAvatarUrl(
+                    username: nameController.text.trim().isEmpty
+                        ? currentUsername
+                        : nameController.text.trim(),
+                    email: currentEmail,
+                  )
+                : currentImageUrl;
             final avatar = selectedImageFile != null
                 ? FileImage(selectedImageFile!)
-                : (currentImageUrl != null
-                          ? NetworkImage(currentImageUrl)
+                : (previewImageUrl != null
+                          ? NetworkImage(previewImageUrl)
                           : null)
                       as ImageProvider<Object>?;
 
@@ -793,6 +827,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                       }
                                       setSheetState(() {
                                         selectedImageFile = file;
+                                        useDefaultAvatar = false;
                                       });
                                     },
                               icon: const Icon(Icons.edit, size: 16),
@@ -802,10 +837,32 @@ class _ChatScreenState extends State<ChatScreen> {
                       ],
                     ),
                   ),
+                  if (!useDefaultAvatar || selectedImageFile != null) ...[
+                    const SizedBox(height: 8),
+                    Center(
+                      child: TextButton.icon(
+                        onPressed: isSaving
+                            ? null
+                            : () {
+                                setSheetState(() {
+                                  selectedImageFile = null;
+                                  useDefaultAvatar = true;
+                                });
+                              },
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Dùng avatar mặc định'),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 16),
                   TextField(
                     controller: nameController,
                     enabled: !isSaving,
+                    onChanged: (_) {
+                      if (useDefaultAvatar) {
+                        setSheetState(() {});
+                      }
+                    },
                     decoration: const InputDecoration(
                       labelText: 'Tên hiển thị',
                       border: OutlineInputBorder(),
@@ -1516,7 +1573,7 @@ class _ChatScreenState extends State<ChatScreen> {
         },
         decoration: InputDecoration(
           prefixIcon: const Icon(Icons.search),
-          hintText: 'Tìm tên hoặc tin nhắn',
+          hintText: 'Tìm kiếm',
           suffixIcon: _chatSearchQuery.isEmpty
               ? null
               : IconButton(

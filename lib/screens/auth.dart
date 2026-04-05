@@ -76,6 +76,37 @@ class _AuthScreenState extends State<AuthScreen> {
     return localPart.isEmpty ? null : localPart;
   }
 
+  String _buildDefaultAvatarUrl({
+    required String username,
+    required String email,
+  }) {
+    final seed = username.trim().isNotEmpty
+        ? username.trim()
+        : (_emailLocalPart(email) ?? 'User');
+    final encodedSeed = Uri.encodeComponent(seed);
+    return 'https://ui-avatars.com/api/?name=$encodedSeed&background=8b7fc4&color=ffffff&size=256';
+  }
+
+  Future<String> _resolveSignupImageUrl(User user) async {
+    final fallbackAvatarUrl = _buildDefaultAvatarUrl(
+      username: _enteredUsername,
+      email: _enteredEmail,
+    );
+
+    if (_selectedImage == null) {
+      return fallbackAvatarUrl;
+    }
+
+    try {
+      return await CloudinaryService.uploadImage(
+        _selectedImage!,
+        publicId: user.uid,
+      );
+    } catch (_) {
+      return fallbackAvatarUrl;
+    }
+  }
+
   String? _readString(Map<String, dynamic>? data, List<String> keys) {
     if (data == null) {
       return null;
@@ -140,17 +171,15 @@ class _AuthScreenState extends State<AuthScreen> {
       builder: (context) {
         return AlertDialog(
           title: const Text('Lưu mật khẩu?'),
-          content: const Text(
-            'Bạn có muốn lưu mật khẩu?',
-          ),
+          content: const Text('Bạn có muốn lưu mật khẩu?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Khong luu'),
+              child: const Text('Không lưu'),
             ),
             ElevatedButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Luu'),
+              child: const Text('Lưu'),
             ),
           ],
         );
@@ -417,7 +446,7 @@ class _AuthScreenState extends State<AuthScreen> {
     bool? savePasswordOverride,
   }) async {
     final isValid = _form.currentState!.validate();
-    if (!isValid || (!_isLogin && _selectedImage == null)) {
+    if (!isValid) {
       return;
     }
 
@@ -466,11 +495,7 @@ class _AuthScreenState extends State<AuthScreen> {
           password: _enteredPassword,
         );
         createdUser = userCredentials.user;
-
-        imageUrl = await CloudinaryService.uploadImage(
-          _selectedImage!,
-          publicId: userCredentials.user!.uid,
-        );
+        imageUrl = await _resolveSignupImageUrl(userCredentials.user!);
         await userCredentials.user!.updateDisplayName(_enteredUsername.trim());
         await userCredentials.user!.updatePhotoURL(imageUrl);
         await FirebaseFirestore.instance

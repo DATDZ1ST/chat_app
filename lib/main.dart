@@ -28,7 +28,12 @@ class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
-    PushNotificationService.instance.initialize();
+    PushNotificationService.instance.initialize().catchError((
+      error,
+      stackTrace,
+    ) {
+      debugPrint('Push notification setup skipped: $error');
+    });
   }
 
   @override

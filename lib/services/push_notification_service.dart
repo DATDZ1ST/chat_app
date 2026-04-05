@@ -22,39 +22,44 @@ class PushNotificationService {
 
     _isInitialized = true;
 
-    await _messaging.requestPermission();
-    await _messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    try {
+      await _messaging.requestPermission();
+      await _messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
 
-    FirebaseAuth.instance.authStateChanges().listen((user) {
-      _handleAuthStateChanged(user);
-    });
-    _messaging.onTokenRefresh.listen((token) async {
+      FirebaseAuth.instance.authStateChanges().listen((user) {
+        _handleAuthStateChanged(user);
+      });
+      _messaging.onTokenRefresh.listen((token) async {
+        final currentUser = FirebaseAuth.instance.currentUser;
+        if (currentUser == null) {
+          return;
+        }
+
+        try {
+          await _registerTokenForUser(currentUser.uid, token);
+        } catch (error, stackTrace) {
+          debugPrint('Failed to refresh FCM token registration: $error');
+          debugPrintStack(stackTrace: stackTrace);
+        }
+      });
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
+
+      final initialMessage = await _messaging.getInitialMessage();
+      if (initialMessage != null) {
+        _handleMessageTap(initialMessage);
+      }
+
       final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        return;
+      if (currentUser != null) {
+        await _handleSignedInUser(currentUser);
       }
-
-      try {
-        await _registerTokenForUser(currentUser.uid, token);
-      } catch (error, stackTrace) {
-        debugPrint('Failed to refresh FCM token registration: $error');
-        debugPrintStack(stackTrace: stackTrace);
-      }
-    });
-    FirebaseMessaging.onMessageOpenedApp.listen(_handleMessageTap);
-
-    final initialMessage = await _messaging.getInitialMessage();
-    if (initialMessage != null) {
-      _handleMessageTap(initialMessage);
-    }
-
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null) {
-      await _handleSignedInUser(currentUser);
+    } catch (error, stackTrace) {
+      debugPrint('PushNotificationService initialization failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
