@@ -205,8 +205,8 @@ class _IncomingCallListenerState extends State<IncomingCallListener> {
                     const SizedBox(height: 10),
                     Text(
                       isVideo
-                          ? 'Dang goi video cho ban'
-                          : 'Dang goi thoai cho ban',
+                          ? 'Đang gọi video cho bạn'
+                          : 'Đang gọi thoai cho bạn',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: Colors.white70,
@@ -221,7 +221,7 @@ class _IncomingCallListenerState extends State<IncomingCallListener> {
                         children: [
                           _buildActionButton(
                             icon: Icons.call_end_rounded,
-                            label: 'Tu choi',
+                            label: 'Từ chối',
                             backgroundColor: const Color(0xFFE53935),
                             onTap: () => navigator.pop(false),
                           ),
@@ -229,7 +229,7 @@ class _IncomingCallListenerState extends State<IncomingCallListener> {
                             icon: isVideo
                                 ? Icons.videocam_rounded
                                 : Icons.call_rounded,
-                            label: 'Tra loi',
+                            label: 'Trả lời',
                             backgroundColor: const Color(0xFF2E7D32),
                             onTap: () => navigator.pop(true),
                           ),
