@@ -1529,6 +1529,20 @@ class _ChatScreenState extends State<ChatScreen> {
           );
     }).toList();
 
+    visibleRequests.sort((a, b) {
+      final firstUpdatedAt = _conversationSortTimestamp(
+        chatId: a.id,
+        chatData: privateChatById[a.id],
+        allMessageDocs: allMessageDocs,
+      );
+      final secondUpdatedAt = _conversationSortTimestamp(
+        chatId: b.id,
+        chatData: privateChatById[b.id],
+        allMessageDocs: allMessageDocs,
+      );
+      return secondUpdatedAt.compareTo(firstUpdatedAt);
+    });
+
     if (visibleRequests.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1667,6 +1681,34 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
       ),
     );
+  }
+
+  int _conversationSortTimestamp({
+    required String chatId,
+    required Map<String, dynamic>? chatData,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allMessageDocs,
+  }) {
+    final updatedAt = chatData?['updatedAt'];
+    if (updatedAt is Timestamp) {
+      return updatedAt.millisecondsSinceEpoch;
+    }
+
+    var latestMessageTimestamp = 0;
+    for (final messageDoc in allMessageDocs) {
+      final messageData = messageDoc.data();
+      final messageChatId = messageData['chatId'] as String?;
+      if (messageChatId != chatId) {
+        continue;
+      }
+
+      final createdAt = messageData['createdAt'];
+      if (createdAt is Timestamp &&
+          createdAt.millisecondsSinceEpoch > latestMessageTimestamp) {
+        latestMessageTimestamp = createdAt.millisecondsSinceEpoch;
+      }
+    }
+
+    return latestMessageTimestamp;
   }
 
   Widget _buildAddFriendsSection(

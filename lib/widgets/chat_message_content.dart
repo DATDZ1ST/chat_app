@@ -560,6 +560,161 @@ class _ChatVoiceMessageState extends State<ChatVoiceMessage> {
   }
 }
 
+class ChatCallLogMessage extends StatelessWidget {
+  const ChatCallLogMessage({
+    super.key,
+    required this.callMode,
+    required this.callStatus,
+    required this.durationSeconds,
+    required this.isMe,
+    this.onRecall,
+  });
+
+  final String callMode;
+  final String callStatus;
+  final int? durationSeconds;
+  final bool isMe;
+  final VoidCallback? onRecall;
+
+  String _twoDigits(int value) {
+    return value.toString().padLeft(2, '0');
+  }
+
+  String _formatDuration() {
+    final totalSeconds = durationSeconds ?? 0;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '${_twoDigits(hours)}:${_twoDigits(minutes)}:${_twoDigits(seconds)}';
+    }
+
+    return '${_twoDigits(minutes)}:${_twoDigits(seconds)}';
+  }
+
+  String _titleText() {
+    if (callStatus == 'declined' || callStatus == 'missed') {
+      return 'Cuộc gọi nhỡ';
+    }
+
+    return callMode == 'video' ? 'Cuộc gọi video' : 'Cuộc gọi thoại';
+  }
+
+  String _subtitleText() {
+    switch (callStatus) {
+      case 'declined':
+      case 'missed':
+        return 'Gọi lại';
+      case 'ended':
+      default:
+        return ' ${_formatDuration()}';
+    }
+  }
+
+  bool get _isMissedCall {
+    return callStatus == 'declined' || callStatus == 'missed';
+  }
+
+  bool get _canRecall => onRecall != null;
+
+  IconData _iconData() {
+    return callMode == 'video' ? Icons.videocam_rounded : Icons.call_rounded;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final titleColor = isMe ? Colors.black87 : Colors.white;
+    final subtitleColor = isMe ? Colors.black54 : Colors.white70;
+    final iconColor = isMe
+        ? Theme.of(context).colorScheme.primary
+        : Colors.white;
+    final recallColor = isMe
+        ? Theme.of(context).colorScheme.primary
+        : Colors.white;
+
+    return SizedBox(
+      width: 220,
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              color: isMe ? Colors.black12 : Colors.white10,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(_iconData(), color: iconColor),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _titleText(),
+                  style: TextStyle(
+                    color: titleColor,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                if (_isMissedCall)
+                  GestureDetector(
+                    onTap: onRecall,
+                    behavior: HitTestBehavior.opaque,
+                    child: Text(
+                      _subtitleText(),
+                      style: TextStyle(
+                        color: recallColor,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        decoration: onRecall != null
+                            ? TextDecoration.underline
+                            : TextDecoration.none,
+                      ),
+                    ),
+                  )
+                else
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _subtitleText(),
+                        style: TextStyle(
+                          color: subtitleColor,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      if (_canRecall) const SizedBox(height: 4),
+                      if (_canRecall)
+                        GestureDetector(
+                          onTap: onRecall,
+                          behavior: HitTestBehavior.opaque,
+                          child: Text(
+                            'Gọi lại',
+                            style: TextStyle(
+                              color: recallColor,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w700,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class ChatLocationMessage extends StatelessWidget {
   const ChatLocationMessage({
     super.key,

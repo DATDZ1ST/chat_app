@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:chat_app/models/call_screen_arguments.dart';
+import 'package:chat_app/screens/call.dart';
 import 'package:chat_app/widgets/chat_message_content.dart';
 import 'package:chat_app/widgets/message_bubble.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -141,6 +143,10 @@ class ChatMessagesState extends State<ChatMessages> {
     final sentAt = createdAt.toDate();
     return '${_twoDigits(sentAt.hour)}:${_twoDigits(sentAt.minute)} • '
         '${_twoDigits(sentAt.day)}/${_twoDigits(sentAt.month)}/${sentAt.year}';
+  }
+
+  String _formatCallLogHeader(Map<String, dynamic> messageData) {
+    return _formatMessageTime(messageData['endedAt'] ?? messageData['createdAt']);
   }
 
   String? _readString(Map<String, dynamic>? data, List<String> keys) {
@@ -512,9 +518,63 @@ class ChatMessagesState extends State<ChatMessages> {
     return _readString(messageData, const ['text']) ?? '';
   }
 
+  Future<void> _recallFromChat({
+    required bool isVideo,
+    required String displayName,
+    String? avatarUrl,
+  }) {
+    return Navigator.of(context).pushNamed(
+      CallScreen.routeName,
+      arguments: CallScreenArguments(
+        chatId: widget.chatId,
+        otherUserId: widget.otherUserId,
+        isOutgoing: true,
+        isVideo: isVideo,
+        displayName: displayName,
+        avatarUrl: avatarUrl,
+      ),
+    );
+  }
+
+  Map<String, bool> _buildCallLogHeaderVisibility(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> messages,
+  ) {
+    const clusterGap = Duration(minutes: 30);
+    final visibilityById = <String, bool>{};
+    DateTime? lastShownCallAt;
+
+    for (final messageDoc in messages.reversed) {
+      final messageData = messageDoc.data();
+      if (_messageType(messageData) != 'call_log') {
+        continue;
+      }
+
+      final endedAt = _readTimestamp(messageData, const ['endedAt']);
+      if (endedAt == null) {
+        visibilityById[messageDoc.id] = false;
+        continue;
+      }
+
+      final endedAtDate = endedAt.toDate();
+      final shouldShowHeader =
+          lastShownCallAt == null ||
+          endedAtDate.difference(lastShownCallAt) >= clusterGap;
+      visibilityById[messageDoc.id] = shouldShowHeader;
+
+      if (shouldShowHeader) {
+        lastShownCallAt = endedAtDate;
+      }
+    }
+
+    return visibilityById;
+  }
+
   Widget? _buildMessageContent(
     Map<String, dynamic> messageData, {
+    required String messageId,
     required bool isMe,
+    required String otherUsername,
+    String? otherUserImage,
   }) {
     final type = _messageType(messageData);
     final mediaUrl = _readString(messageData, const ['mediaUrl']);
@@ -538,6 +598,22 @@ class ChatMessagesState extends State<ChatMessages> {
           audioUrl: mediaUrl,
           durationMs: _readInt(messageData, const ['durationMs']),
           isMe: isMe,
+        );
+      case 'call_log':
+        final callMode =
+            _readString(messageData, const ['callMode']) ?? 'voice';
+        final callStatus =
+            _readString(messageData, const ['callStatus']) ?? 'ended';
+        return ChatCallLogMessage(
+          callMode: callMode,
+          callStatus: callStatus,
+          durationSeconds: _readInt(messageData, const ['durationSeconds']),
+          isMe: isMe,
+          onRecall: () => _recallFromChat(
+            isVideo: callMode == 'video',
+            displayName: otherUsername,
+            avatarUrl: otherUserImage,
+          ),
         );
       case 'location':
       case 'live_location':
@@ -1057,6 +1133,11 @@ class ChatMessagesState extends State<ChatMessages> {
                 );
                 final readReceiptUsername =
                     _resolveUsername(otherUserProfile, const {}) ?? 'User';
+                final otherUsername = readReceiptUsername;
+                final otherUserImage = readReceiptUserImage;
+                final callLogHeaderVisibility = _buildCallLogHeaderVisibility(
+                  visibleMessages,
+                );
 
                 return ScrollablePositionedList.builder(
                   padding: const EdgeInsets.only(
@@ -1095,7 +1176,13 @@ class ChatMessagesState extends State<ChatMessages> {
                     final messageText = _messageText(chatMessage);
                     final messageContent = isDeletedForEveryone
                         ? null
-                        : _buildMessageContent(chatMessage, isMe: isMe);
+                        : _buildMessageContent(
+                            chatMessage,
+                            messageId: messageDoc.id,
+                            isMe: isMe,
+                            otherUsername: otherUsername,
+                            otherUserImage: otherUserImage,
+                          );
                     final isBorderlessMedia =
                         !isDeletedForEveryone &&
                         (messageType == 'image' || messageType == 'video');
@@ -1110,6 +1197,11 @@ class ChatMessagesState extends State<ChatMessages> {
                     final timestampLabel = _formatMessageTime(
                       chatMessage['createdAt'],
                     );
+                    final callLogHeaderLabel =
+                        messageType == 'call_log' &&
+                            (callLogHeaderVisibility[messageDoc.id] ?? false)
+                        ? _formatCallLogHeader(chatMessage)
+                        : '';
                     final isLatestMessage =
                         visibleMessages.isNotEmpty &&
                         visibleMessages.first.id == messageDoc.id;
@@ -1152,6 +1244,19 @@ class ChatMessagesState extends State<ChatMessages> {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (callLogHeaderLabel.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8, bottom: 6),
+                            child: Text(
+                              callLogHeaderLabel,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         messageBubble,
                         if (showTimestamp && timestampLabel.isNotEmpty)
                           Padding(

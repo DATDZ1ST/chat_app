@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:chat_app/models/call_screen_arguments.dart';
+import 'package:chat_app/screens/call.dart';
 import 'package:chat_app/widgets/chat_messages.dart';
 import 'package:chat_app/widgets/new_message.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -601,6 +603,42 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 ),
               ],
             ),
+            actions: [
+              IconButton(
+                tooltip: 'Voice call',
+                onPressed: () {
+                  Navigator.of(context).pushNamed(
+                    CallScreen.routeName,
+                    arguments: CallScreenArguments(
+                      chatId: widget.arguments.chatId,
+                      otherUserId: widget.arguments.otherUserId,
+                      isOutgoing: true,
+                      isVideo: false,
+                      displayName: username,
+                      avatarUrl: userImage,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.call_outlined),
+              ),
+              IconButton(
+                tooltip: 'Video call',
+                onPressed: () {
+                  Navigator.of(context).pushNamed(
+                    CallScreen.routeName,
+                    arguments: CallScreenArguments(
+                      chatId: widget.arguments.chatId,
+                      otherUserId: widget.arguments.otherUserId,
+                      isOutgoing: true,
+                      isVideo: true,
+                      displayName: username,
+                      avatarUrl: userImage,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.videocam_outlined),
+              ),
+            ],
           ),
           body: Listener(
             behavior: HitTestBehavior.translucent,

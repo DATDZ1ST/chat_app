@@ -1,6 +1,8 @@
 import 'package:chat_app/navigation/app_navigator.dart';
-import 'package:chat_app/screens/conversation.dart';
+import 'package:chat_app/models/call_screen_arguments.dart';
+import 'package:chat_app/screens/call.dart';
 import 'package:chat_app/screens/chat.dart';
+import 'package:chat_app/screens/conversation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -129,6 +131,8 @@ class PushNotificationService {
       return;
     }
 
+    final screen = message.data['screen'];
+    final callId = message.data['callId'];
     final chatId = message.data['chatId'];
     final otherUserId = message.data['otherUserId'];
 
@@ -139,6 +143,26 @@ class PushNotificationService {
       }
 
       navigator.pushNamedAndRemoveUntil(ChatScreen.routeName, (route) => false);
+
+      if (screen == 'call' &&
+          callId is String &&
+          callId.isNotEmpty &&
+          chatId is String &&
+          chatId.isNotEmpty &&
+          otherUserId is String &&
+          otherUserId.isNotEmpty) {
+        navigator.pushNamed(
+          CallScreen.routeName,
+          arguments: CallScreenArguments(
+            callId: callId,
+            chatId: chatId,
+            otherUserId: otherUserId,
+            isOutgoing: false,
+            isVideo: message.data['isVideo'] == 'true',
+          ),
+        );
+        return;
+      }
 
       if (chatId is String &&
           chatId.isNotEmpty &&

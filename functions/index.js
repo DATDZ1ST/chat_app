@@ -149,3 +149,133 @@ exports.sendPrivateChatNotification = onDocumentCreated(
     await cleanupBatch.commit();
   },
 );
+
+exports.sendIncomingCallNotification = onDocumentCreated(
+  "calls/{callId}",
+  async (event) => {
+    if (!event.data) {
+      return;
+    }
+
+    const callData = event.data.data();
+    const callerId = callData.callerId;
+    const calleeId = callData.calleeId;
+    const callerName = callData.callerName || "Incoming call";
+    const chatId = callData.chatId;
+    const isVideo = callData.isVideo === true;
+    const status = callData.status;
+
+    if (!calleeId || !callerId || !chatId || status !== "ringing") {
+      logger.info("Skipping incoming call push because required data is missing.", {
+        callId: event.params.callId,
+      });
+      return;
+    }
+
+    const recipientDoc = await getFirestore().collection("users").doc(calleeId).get();
+    if (!recipientDoc.exists) {
+      logger.info("Incoming call recipient profile not found.", {
+        calleeId,
+        callId: event.params.callId,
+      });
+      return;
+    }
+
+    const recipientTokens = [];
+    const tokens = recipientDoc.get("fcmTokens");
+
+    if (Array.isArray(tokens)) {
+      tokens.forEach((token) => {
+        if (typeof token === "string" && token.trim().length > 0) {
+          recipientTokens.push({
+            userId: calleeId,
+            token: token.trim(),
+          });
+        }
+      });
+    }
+
+    if (recipientTokens.length === 0) {
+      logger.info("No push recipients found for incoming call.", {
+        callId: event.params.callId,
+        calleeId,
+      });
+      return;
+    }
+
+    const invalidTokens = [];
+    const tokenChunks = splitIntoChunks(recipientTokens, MAX_TOKENS_PER_BATCH);
+
+    for (const tokenChunk of tokenChunks) {
+      const response = await getMessaging().sendEachForMulticast({
+        tokens: tokenChunk.map((entry) => entry.token),
+        notification: {
+          title: callerName,
+          body: isVideo ? "Incoming video call" : "Incoming voice call",
+        },
+        data: {
+          screen: "call",
+          callId: event.params.callId,
+          chatId,
+          otherUserId: callerId,
+          isVideo: isVideo ? "true" : "false",
+        },
+        android: {
+          notification: {
+            clickAction: "FLUTTER_NOTIFICATION_CLICK",
+          },
+        },
+        apns: {
+          payload: {
+            aps: {
+              sound: "default",
+            },
+          },
+        },
+      });
+
+      response.responses.forEach((sendResult, index) => {
+        if (sendResult.success) {
+          return;
+        }
+
+        const failedToken = tokenChunk[index];
+        const errorCode = sendResult.error?.code;
+
+        logger.error("Failed to send incoming call notification.", {
+          errorCode,
+          token: failedToken?.token,
+          userId: failedToken?.userId,
+        });
+
+        if (
+          errorCode === "messaging/invalid-registration-token" ||
+          errorCode === "messaging/registration-token-not-registered"
+        ) {
+          invalidTokens.push(failedToken);
+        }
+      });
+    }
+
+    if (invalidTokens.length === 0) {
+      return;
+    }
+
+    const cleanupBatch = getFirestore().batch();
+    invalidTokens.forEach((entry) => {
+      if (!entry) {
+        return;
+      }
+
+      cleanupBatch.set(
+        getFirestore().collection("users").doc(entry.userId),
+        {
+          fcmTokens: FieldValue.arrayRemove([entry.token]),
+        },
+        {merge: true},
+      );
+    });
+
+    await cleanupBatch.commit();
+  },
+);
