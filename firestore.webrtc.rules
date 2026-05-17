@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Merge this block into your existing Firestore rules if you already
+    // manage rules in the Firebase Console.
+    match /app_config/{docId} {
+      allow read: if request.auth != null && docId == 'webrtc';
+      allow write: if false;
+    }
+  }
+}

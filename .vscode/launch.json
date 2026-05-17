@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "chat_app",
+      "request": "launch",
+      "type": "dart"
+    },
+    {
+      "name": "chat_app (TURN)",
+      "request": "launch",
+      "type": "dart",
+      "preLaunchTask": "prepare-webrtc-config",
+      "toolArgs": [
+        "--dart-define-from-file=env/webrtc.local.json"
+      ]
+    }
+  ]
+}

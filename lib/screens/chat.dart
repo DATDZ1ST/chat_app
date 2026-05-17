@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:chat_app/screens/change_password.dart';
 import 'package:chat_app/screens/conversation.dart';
+import 'package:chat_app/screens/create_group.dart';
+import 'package:chat_app/screens/group_conversation.dart';
 import 'package:chat_app/services/cloudinary_service.dart';
 import 'package:chat_app/services/push_notification_service.dart';
 import 'package:chat_app/services/remembered_accounts_service.dart';
@@ -268,6 +270,40 @@ class _ChatScreenState extends State<ChatScreen> {
     return value.whereType<String>().toList();
   }
 
+  String? _nicknameForOtherUser({
+    required Map<String, dynamic>? chatData,
+    required String otherUserId,
+  }) {
+    final nicknamesByUser = chatData?['nicknamesByUser'];
+    if (nicknamesByUser is! Map) {
+      return null;
+    }
+
+    final currentUserNicknames = nicknamesByUser[_currentUser.uid];
+    if (currentUserNicknames is! Map) {
+      return null;
+    }
+
+    final nickname = currentUserNicknames[otherUserId];
+    if (nickname is String && nickname.trim().isNotEmpty) {
+      return nickname.trim();
+    }
+
+    return null;
+  }
+
+  String _displayNameForOtherUser({
+    required String username,
+    required Map<String, dynamic>? chatData,
+    required String otherUserId,
+  }) {
+    return _nicknameForOtherUser(
+          chatData: chatData,
+          otherUserId: otherUserId,
+        ) ??
+        username;
+  }
+
   Timestamp? _readConversationClearedAt(
     Map<String, dynamic>? chatData,
     String userId,
@@ -287,6 +323,23 @@ class _ChatScreenState extends State<ChatScreen> {
 
   bool _isConversationHiddenForCurrentUser(Map<String, dynamic>? chatData) {
     return _readStringList(chatData, 'hiddenFor').contains(_currentUser.uid);
+  }
+
+  bool _isGroupChat(Map<String, dynamic>? chatData) {
+    return chatData?['isGroup'] == true || chatData?['type'] == 'group';
+  }
+
+  String _groupName(Map<String, dynamic>? chatData) {
+    return _readString(chatData, const ['name', 'groupName']) ?? 'Nhóm chat';
+  }
+
+  String? _groupImageUrl(Map<String, dynamic>? chatData) {
+    return _readString(chatData, const [
+      'imageUrl',
+      'image_url',
+      'groupImage',
+      'groupImageUrl',
+    ]);
   }
 
   bool _hasIncomingMessageAfterClear({
@@ -648,6 +701,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
       final otherUserData = userById[otherUserId]?.data();
       final username = _readString(otherUserData, const ['username']) ?? 'User';
+      final displayName = _displayNameForOtherUser(
+        username: username,
+        chatData: chatData,
+        otherUserId: otherUserId,
+      );
       final userImage = _readString(otherUserData, const [
         'image_url',
         'imageUrl',
@@ -658,7 +716,7 @@ class _ChatScreenState extends State<ChatScreen> {
         _ChatMessageSearchResult(
           chatId: requestDoc.id,
           otherUserId: otherUserId,
-          username: username,
+          username: displayName,
           userImage: userImage,
           matches: matches,
           isArchived: _isConversationArchivedForCurrentUser(chatData),
@@ -1094,6 +1152,37 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Future<void> _openGroupConversation({
+    required String chatId,
+    String? initialMessageId,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection('private_chats')
+        .doc(chatId)
+        .set({
+          'hiddenFor': FieldValue.arrayRemove([_currentUser.uid]),
+        }, SetOptions(merge: true));
+
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => GroupConversationScreen(
+          chatId: chatId,
+          initialMessageId: initialMessageId,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openCreateGroupScreen() async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const CreateGroupScreen()));
+  }
+
   Widget _buildSectionTitle(BuildContext context, String title) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
@@ -1205,6 +1294,102 @@ class _ChatScreenState extends State<ChatScreen> {
     );
   }
 
+  Widget _buildGroupTile({
+    required String chatId,
+    required Map<String, dynamic> chatData,
+  }) {
+    final clearedAt = _readConversationClearedAt(chatData, _currentUser.uid);
+    final participants = _readStringList(chatData, 'participants');
+    final groupName = _groupName(chatData);
+    final groupImageUrl = _groupImageUrl(chatData);
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('private_chats')
+          .doc(chatId)
+          .collection('messages')
+          .orderBy('createdAt', descending: true)
+          .limit(20)
+          .snapshots(),
+      builder: (context, snapshot) {
+        Map<String, dynamic>? latestMessageData;
+
+        for (final doc in snapshot.data?.docs ?? const []) {
+          final messageData = doc.data();
+          final deletedFor = List<String>.from(
+            messageData['deletedFor'] ?? const [],
+          );
+          if (!deletedFor.contains(_currentUser.uid) &&
+              !_wasMessageClearedForCurrentUser(messageData, clearedAt)) {
+            latestMessageData = messageData;
+            break;
+          }
+        }
+
+        final latestMessageText = _readString(latestMessageData, const [
+          'text',
+        ]);
+        final latestMessageSenderId = _readString(latestMessageData, const [
+          'userId',
+        ]);
+        final latestMessageReadBy = List<String>.from(
+          latestMessageData?['readBy'] ?? const [],
+        );
+        final senderName = _readString(latestMessageData, const ['username']);
+        final previewContent = latestMessageData?['deletedForEveryone'] == true
+            ? 'Tin nhắn đã bị thu hồi'
+            : latestMessageText;
+        final isUnread =
+            previewContent != null &&
+            latestMessageSenderId != null &&
+            latestMessageSenderId != _currentUser.uid &&
+            !latestMessageReadBy.contains(_currentUser.uid);
+        final previewText = previewContent == null
+            ? '${participants.length} thành viên'
+            : latestMessageSenderId == _currentUser.uid
+            ? 'Bạn: $previewContent'
+            : senderName == null
+            ? previewContent
+            : '$senderName: $previewContent';
+        final titleStyle = isUnread
+            ? Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)
+            : null;
+        final subtitleStyle = isUnread
+            ? Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)
+            : null;
+
+        return Card(
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: ListTile(
+            onTap: () => _openGroupConversation(chatId: chatId),
+            leading: CircleAvatar(
+              foregroundImage: groupImageUrl != null
+                  ? NetworkImage(groupImageUrl)
+                  : null,
+              backgroundColor: Theme.of(context).colorScheme.primary,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              child: groupImageUrl == null
+                  ? const Icon(Icons.groups_rounded)
+                  : null,
+            ),
+            title: Text(groupName, style: titleStyle),
+            subtitle: Text(
+              previewText,
+              style: subtitleStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildIncomingRequestsSection(
     Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> userById,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> requestDocs,
@@ -1273,12 +1458,24 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<String, QueryDocumentSnapshot<Map<String, dynamic>>> userById,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> requestDocs,
     Map<String, Map<String, dynamic>> privateChatById,
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> groupChatDocs,
     List<QueryDocumentSnapshot<Map<String, dynamic>>> allMessageDocs,
   ) {
     if (_chatSearchQuery.isNotEmpty) {
       final acceptedRequests = requestDocs.where((requestDoc) {
         return requestDoc.data()['status'] == 'accepted';
       }).toList();
+      final matchedGroupChats =
+          groupChatDocs.where((groupDoc) {
+            return _matchesSearch(
+              _groupName(groupDoc.data()),
+              _chatSearchQuery,
+            );
+          }).toList()..sort((a, b) {
+            return _groupName(
+              a.data(),
+            ).toLowerCase().compareTo(_groupName(b.data()).toLowerCase());
+          });
 
       final matchedFriendRequests =
           acceptedRequests.where((requestDoc) {
@@ -1290,10 +1487,17 @@ class _ChatScreenState extends State<ChatScreen> {
               return false;
             }
 
-            final username = _readString(userById[otherUserId]?.data(), const [
-              'username',
-            ]);
-            return _matchesSearch(username, _chatSearchQuery);
+            final username =
+                _readString(userById[otherUserId]?.data(), const [
+                  'username',
+                ]) ??
+                'User';
+            final displayName = _displayNameForOtherUser(
+              username: username,
+              chatData: privateChatById[requestDoc.id],
+              otherUserId: otherUserId,
+            );
+            return _matchesSearch(displayName, _chatSearchQuery);
           }).toList()..sort((a, b) {
             final firstOtherUserId = _extractOtherUserId(
               List<String>.from(a.data()['participants'] ?? []),
@@ -1305,14 +1509,28 @@ class _ChatScreenState extends State<ChatScreen> {
                 _readString(userById[firstOtherUserId]?.data(), const [
                   'username',
                 ]) ??
-                '';
+                'User';
             final secondUsername =
                 _readString(userById[secondOtherUserId]?.data(), const [
                   'username',
                 ]) ??
-                '';
-            return firstUsername.toLowerCase().compareTo(
-              secondUsername.toLowerCase(),
+                'User';
+            final firstDisplayName = firstOtherUserId == null
+                ? ''
+                : _displayNameForOtherUser(
+                    username: firstUsername,
+                    chatData: privateChatById[a.id],
+                    otherUserId: firstOtherUserId,
+                  );
+            final secondDisplayName = secondOtherUserId == null
+                ? ''
+                : _displayNameForOtherUser(
+                    username: secondUsername,
+                    chatData: privateChatById[b.id],
+                    otherUserId: secondOtherUserId,
+                  );
+            return firstDisplayName.toLowerCase().compareTo(
+              secondDisplayName.toLowerCase(),
             );
           });
 
@@ -1349,6 +1567,7 @@ class _ChatScreenState extends State<ChatScreen> {
           });
 
       final hasResults =
+          matchedGroupChats.isNotEmpty ||
           matchedFriendRequests.isNotEmpty ||
           messageSearchResults.isNotEmpty ||
           otherUsers.isNotEmpty;
@@ -1357,6 +1576,15 @@ class _ChatScreenState extends State<ChatScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildChatSearchField(),
+          if (matchedGroupChats.isNotEmpty) ...[
+            _buildSectionTitle(context, 'Nhóm'),
+            ...matchedGroupChats.map((groupDoc) {
+              return _buildGroupTile(
+                chatId: groupDoc.id,
+                chatData: groupDoc.data(),
+              );
+            }),
+          ],
           if (matchedFriendRequests.isNotEmpty) ...[
             _buildSectionTitle(context, 'Bạn bè'),
             ...matchedFriendRequests.map((requestDoc) {
@@ -1371,6 +1599,11 @@ class _ChatScreenState extends State<ChatScreen> {
               final otherUser = userById[otherUserId]?.data();
               final username =
                   _readString(otherUser, const ['username']) ?? 'User';
+              final displayName = _displayNameForOtherUser(
+                username: username,
+                chatData: privateChatById[requestDoc.id],
+                otherUserId: otherUserId,
+              );
               final userImage = _readString(otherUser, const [
                 'image_url',
                 'imageUrl',
@@ -1380,7 +1613,7 @@ class _ChatScreenState extends State<ChatScreen> {
               return _buildFriendTile(
                 chatId: requestDoc.id,
                 otherUserId: otherUserId,
-                username: username,
+                username: displayName,
                 userImage: userImage,
                 chatData: privateChatById[requestDoc.id],
                 isArchived: _isConversationArchivedForCurrentUser(
@@ -1516,6 +1749,24 @@ class _ChatScreenState extends State<ChatScreen> {
       );
     }
 
+    final visibleGroupChats =
+        groupChatDocs.where((groupDoc) {
+          final chatData = groupDoc.data();
+          return !_isConversationHiddenForCurrentUser(chatData);
+        }).toList()..sort((a, b) {
+          final firstUpdatedAt = _conversationSortTimestamp(
+            chatId: a.id,
+            chatData: a.data(),
+            allMessageDocs: allMessageDocs,
+          );
+          final secondUpdatedAt = _conversationSortTimestamp(
+            chatId: b.id,
+            chatData: b.data(),
+            allMessageDocs: allMessageDocs,
+          );
+          return secondUpdatedAt.compareTo(firstUpdatedAt);
+        });
+
     final visibleRequests = requestDocs.where((requestDoc) {
       final data = requestDoc.data();
       return data['status'] == 'accepted' &&
@@ -1543,7 +1794,7 @@ class _ChatScreenState extends State<ChatScreen> {
       return secondUpdatedAt.compareTo(firstUpdatedAt);
     });
 
-    if (visibleRequests.isEmpty) {
+    if (visibleRequests.isEmpty && visibleGroupChats.isEmpty) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1563,32 +1814,49 @@ class _ChatScreenState extends State<ChatScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildChatSearchField(),
-        _buildSectionTitle(context, 'Bạn bè'),
-        ...visibleRequests.map((requestDoc) {
-          final data = requestDoc.data();
-          final participants = List<String>.from(data['participants'] ?? []);
-          final otherUserId = _extractOtherUserId(participants);
+        if (visibleGroupChats.isNotEmpty) ...[
+          _buildSectionTitle(context, 'Nhóm'),
+          ...visibleGroupChats.map((groupDoc) {
+            return _buildGroupTile(
+              chatId: groupDoc.id,
+              chatData: groupDoc.data(),
+            );
+          }),
+        ],
+        if (visibleRequests.isNotEmpty) ...[
+          _buildSectionTitle(context, 'Bạn bè'),
+          ...visibleRequests.map((requestDoc) {
+            final data = requestDoc.data();
+            final participants = List<String>.from(data['participants'] ?? []);
+            final otherUserId = _extractOtherUserId(participants);
 
-          if (otherUserId == null) {
-            return const SizedBox.shrink();
-          }
+            if (otherUserId == null) {
+              return const SizedBox.shrink();
+            }
 
-          final otherUser = userById[otherUserId]?.data();
-          final username = _readString(otherUser, const ['username']) ?? 'User';
-          final userImage = _readString(otherUser, const [
-            'image_url',
-            'imageUrl',
-            'userImage',
-          ]);
+            final otherUser = userById[otherUserId]?.data();
+            final username =
+                _readString(otherUser, const ['username']) ?? 'User';
+            final displayName = _displayNameForOtherUser(
+              username: username,
+              chatData: privateChatById[requestDoc.id],
+              otherUserId: otherUserId,
+            );
+            final userImage = _readString(otherUser, const [
+              'image_url',
+              'imageUrl',
+              'userImage',
+            ]);
 
-          return _buildFriendTile(
-            chatId: requestDoc.id,
-            otherUserId: otherUserId,
-            username: username,
-            userImage: userImage,
-            chatData: privateChatById[requestDoc.id],
-          );
-        }),
+            return _buildFriendTile(
+              chatId: requestDoc.id,
+              otherUserId: otherUserId,
+              username: displayName,
+              userImage: userImage,
+              chatData: privateChatById[requestDoc.id],
+            );
+          }),
+        ],
       ],
     );
   }
@@ -1633,6 +1901,11 @@ class _ChatScreenState extends State<ChatScreen> {
 
           final otherUser = userById[otherUserId]?.data();
           final username = _readString(otherUser, const ['username']) ?? 'User';
+          final displayName = _displayNameForOtherUser(
+            username: username,
+            chatData: privateChatById[requestDoc.id],
+            otherUserId: otherUserId,
+          );
           final userImage = _readString(otherUser, const [
             'image_url',
             'imageUrl',
@@ -1642,7 +1915,7 @@ class _ChatScreenState extends State<ChatScreen> {
           return _buildFriendTile(
             chatId: requestDoc.id,
             otherUserId: otherUserId,
-            username: username,
+            username: displayName,
             userImage: userImage,
             chatData: privateChatById[requestDoc.id],
             isArchived: true,
@@ -1902,6 +2175,10 @@ class _ChatScreenState extends State<ChatScreen> {
                       in privateChatsSnapshot.data?.docs ?? [])
                     privateChatDoc.id: privateChatDoc.data(),
                 };
+                final groupChatDocs =
+                    (privateChatsSnapshot.data?.docs ?? const [])
+                        .where((chatDoc) => _isGroupChat(chatDoc.data()))
+                        .toList();
 
                 return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: _allMessagesStream,
@@ -1912,8 +2189,20 @@ class _ChatScreenState extends State<ChatScreen> {
                     return Scaffold(
                       appBar: AppBar(
                         title: const Text('Datdz'),
-                        actions: _selectedTabIndex == 1
+                        actions: _selectedTabIndex == 0
                             ? [
+                                IconButton(
+                                  tooltip: 'Tạo nhóm',
+                                  onPressed: _openCreateGroupScreen,
+                                  icon: Icon(
+                                    Icons.group_add_outlined,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.primary,
+                                  ),
+                                ),
+                              ]
+                            : [
                                 PopupMenuButton<_ChatMenuAction>(
                                   tooltip: 'Tùy chọn',
                                   onSelected: _handleMenuAction,
@@ -1938,8 +2227,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                     ),
                                   ],
                                 ),
-                              ]
-                            : null,
+                              ],
                       ),
                       bottomNavigationBar: NavigationBar(
                         selectedIndex: _selectedTabIndex,
@@ -1969,6 +2257,7 @@ class _ChatScreenState extends State<ChatScreen> {
                                   userById,
                                   requestDocs,
                                   privateChatById,
+                                  groupChatDocs,
                                   allMessageDocs,
                                 ),
                               ]

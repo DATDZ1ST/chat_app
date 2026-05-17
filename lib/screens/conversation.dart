@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:chat_app/models/call_screen_arguments.dart';
 import 'package:chat_app/screens/call.dart';
+import 'package:chat_app/screens/conversation_settings.dart';
 import 'package:chat_app/widgets/chat_messages.dart';
 import 'package:chat_app/widgets/new_message.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -32,11 +33,18 @@ class ConversationScreen extends StatefulWidget {
 }
 
 class _ConversationScreenState extends State<ConversationScreen> {
+  static const String _defaultQuickReaction = '👍';
+
   final GlobalKey<ChatMessagesState> _chatMessagesKey =
       GlobalKey<ChatMessagesState>();
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _messagesSubscription;
   bool _isMarkingMessagesAsRead = false;
+
+  DocumentReference<Map<String, dynamic>> get _chatDocument => FirebaseFirestore
+      .instance
+      .collection('private_chats')
+      .doc(widget.arguments.chatId);
 
   String? _readString(Map<String, dynamic>? data, List<String> keys) {
     if (data == null) {
@@ -51,6 +59,117 @@ class _ConversationScreenState extends State<ConversationScreen> {
     }
 
     return null;
+  }
+
+  String? _readMappedString(
+    Map<String, dynamic>? data,
+    String field,
+    String key,
+  ) {
+    final rawMap = data?[field];
+    if (rawMap is! Map) {
+      return null;
+    }
+
+    final value = rawMap[key];
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+
+    return null;
+  }
+
+  String? _otherUserNickname(Map<String, dynamic>? chatData) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) {
+      return null;
+    }
+
+    final nicknamesByUser = chatData?['nicknamesByUser'];
+    if (nicknamesByUser is! Map) {
+      return null;
+    }
+
+    final currentUserNicknames = nicknamesByUser[currentUserId];
+    if (currentUserNicknames is! Map) {
+      return null;
+    }
+
+    final nickname = currentUserNicknames[widget.arguments.otherUserId];
+    if (nickname is String && nickname.trim().isNotEmpty) {
+      return nickname.trim();
+    }
+
+    return null;
+  }
+
+  String _displayNameForOtherUser({
+    required String username,
+    required Map<String, dynamic>? chatData,
+  }) {
+    return _otherUserNickname(chatData) ?? username;
+  }
+
+  String _quickReactionFor(Map<String, dynamic>? chatData) {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) {
+      return _defaultQuickReaction;
+    }
+
+    return _readMappedString(chatData, 'quickReactions', currentUserId) ??
+        _defaultQuickReaction;
+  }
+
+  Map<String, dynamic>? _readConversationTheme(Map<String, dynamic>? chatData) {
+    final rawTheme = chatData?['theme'];
+    if (rawTheme is! Map) {
+      return null;
+    }
+
+    return Map<String, dynamic>.from(rawTheme);
+  }
+
+  Color? _readThemeColor(Map<String, dynamic>? chatData) {
+    final theme = _readConversationTheme(chatData);
+    if (theme?['type'] != 'color') {
+      return null;
+    }
+
+    final colorValue = theme?['backgroundColor'];
+    if (colorValue is int) {
+      return Color(colorValue);
+    }
+    if (colorValue is num) {
+      return Color(colorValue.toInt());
+    }
+
+    return null;
+  }
+
+  String? _readThemeImageUrl(Map<String, dynamic>? chatData) {
+    final theme = _readConversationTheme(chatData);
+    if (theme?['type'] != 'image') {
+      return null;
+    }
+
+    return _readString(theme, const ['imageUrl']);
+  }
+
+  BoxDecoration _conversationThemeDecoration(
+    BuildContext context,
+    Map<String, dynamic>? chatData,
+  ) {
+    final imageUrl = _readThemeImageUrl(chatData);
+    final color = _readThemeColor(chatData);
+
+    return BoxDecoration(
+      color: imageUrl == null
+          ? color ?? Theme.of(context).colorScheme.surface
+          : Colors.black,
+      image: imageUrl == null
+          ? null
+          : DecorationImage(image: NetworkImage(imageUrl), fit: BoxFit.cover),
+    );
   }
 
   List<Map<String, dynamic>> _readPinnedMessages(
@@ -479,6 +598,28 @@ class _ConversationScreenState extends State<ConversationScreen> {
     );
   }
 
+  Future<void> _openConversationSettingsScreen({
+    required String username,
+    required String? userImage,
+  }) async {
+    final selectedMessageId = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (context) => ConversationSettingsScreen(
+          chatId: widget.arguments.chatId,
+          otherUserId: widget.arguments.otherUserId,
+          fallbackUsername: username,
+          fallbackUserImage: userImage,
+        ),
+      ),
+    );
+
+    if (!mounted || selectedMessageId == null) {
+      return;
+    }
+
+    _chatMessagesKey.currentState?.scrollToMessage(selectedMessageId);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -585,103 +726,136 @@ class _ConversationScreenState extends State<ConversationScreen> {
           'userImage',
         ]);
 
-        return Scaffold(
-          appBar: AppBar(
-            title: Row(
-              children: [
-                CircleAvatar(
-                  foregroundImage: userImage != null
-                      ? NetworkImage(userImage)
-                      : null,
-                  child: userImage == null
-                      ? Text(username[0].toUpperCase())
-                      : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(username, overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
-            actions: [
-              IconButton(
-                tooltip: 'Voice call',
-                onPressed: () {
-                  Navigator.of(context).pushNamed(
-                    CallScreen.routeName,
-                    arguments: CallScreenArguments(
-                      chatId: widget.arguments.chatId,
-                      otherUserId: widget.arguments.otherUserId,
-                      isOutgoing: true,
-                      isVideo: false,
-                      displayName: username,
-                      avatarUrl: userImage,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.call_outlined),
-              ),
-              IconButton(
-                tooltip: 'Video call',
-                onPressed: () {
-                  Navigator.of(context).pushNamed(
-                    CallScreen.routeName,
-                    arguments: CallScreenArguments(
-                      chatId: widget.arguments.chatId,
-                      otherUserId: widget.arguments.otherUserId,
-                      isOutgoing: true,
-                      isVideo: true,
-                      displayName: username,
-                      avatarUrl: userImage,
-                    ),
-                  );
-                },
-                icon: const Icon(Icons.videocam_outlined),
-              ),
-            ],
-          ),
-          body: Listener(
-            behavior: HitTestBehavior.translucent,
-            onPointerDown: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-            child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('private_chats')
-                  .doc(widget.arguments.chatId)
-                  .snapshots(),
-              builder: (context, chatSnapshot) {
-                final chatData = chatSnapshot.data?.data();
-                final pinnedMessages = _readPinnedMessages(chatData);
-                final currentUserId = FirebaseAuth.instance.currentUser?.uid;
-                final clearedAt = currentUserId == null
-                    ? null
-                    : _readConversationClearedAt(chatData, currentUserId);
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: _chatDocument.snapshots(),
+          builder: (context, chatSnapshot) {
+            final chatData = chatSnapshot.data?.data();
+            final displayName = _displayNameForOtherUser(
+              username: username,
+              chatData: chatData,
+            );
+            final pinnedMessages = _readPinnedMessages(chatData);
+            final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+            final clearedAt = currentUserId == null
+                ? null
+                : _readConversationClearedAt(chatData, currentUserId);
+            final quickReaction = _quickReactionFor(chatData);
 
-                return Column(
+            return Scaffold(
+              appBar: AppBar(
+                title: InkWell(
+                  borderRadius: BorderRadius.circular(999),
+                  onTap: currentUserId == null
+                      ? null
+                      : () => _openConversationSettingsScreen(
+                          username: username,
+                          userImage: userImage,
+                        ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        CircleAvatar(
+                          foregroundImage: userImage != null
+                              ? NetworkImage(userImage)
+                              : null,
+                          child: userImage == null
+                              ? Text(displayName[0].toUpperCase())
+                              : null,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            displayName,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                actions: [
+                  IconButton(
+                    tooltip: 'Voice call',
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(
+                        CallScreen.routeName,
+                        arguments: CallScreenArguments(
+                          chatId: widget.arguments.chatId,
+                          otherUserId: widget.arguments.otherUserId,
+                          isOutgoing: true,
+                          isVideo: false,
+                          displayName: displayName,
+                          avatarUrl: userImage,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.call_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Video call',
+                    onPressed: () {
+                      Navigator.of(context).pushNamed(
+                        CallScreen.routeName,
+                        arguments: CallScreenArguments(
+                          chatId: widget.arguments.chatId,
+                          otherUserId: widget.arguments.otherUserId,
+                          isOutgoing: true,
+                          isVideo: true,
+                          displayName: displayName,
+                          avatarUrl: userImage,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.videocam_outlined),
+                  ),
+                ],
+              ),
+              body: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: (_) =>
+                    FocusManager.instance.primaryFocus?.unfocus(),
+                child: Column(
                   children: [
-                    if (pinnedMessages.isNotEmpty && currentUserId != null)
-                      _buildPinnedMessagesBanner(
-                        context,
-                        pinnedMessages: pinnedMessages,
-                        currentUserId: currentUserId,
-                        clearedAt: clearedAt,
-                      ),
                     Expanded(
-                      child: ChatMessages(
-                        key: _chatMessagesKey,
-                        chatId: widget.arguments.chatId,
-                        otherUserId: widget.arguments.otherUserId,
-                        initialMessageId: widget.arguments.initialMessageId,
+                      child: DecoratedBox(
+                        decoration: _conversationThemeDecoration(
+                          context,
+                          chatData,
+                        ),
+                        child: Column(
+                          children: [
+                            if (pinnedMessages.isNotEmpty &&
+                                currentUserId != null)
+                              _buildPinnedMessagesBanner(
+                                context,
+                                pinnedMessages: pinnedMessages,
+                                currentUserId: currentUserId,
+                                clearedAt: clearedAt,
+                              ),
+                            Expanded(
+                              child: ChatMessages(
+                                key: _chatMessagesKey,
+                                chatId: widget.arguments.chatId,
+                                otherUserId: widget.arguments.otherUserId,
+                                initialMessageId:
+                                    widget.arguments.initialMessageId,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     NewMessage(
                       chatId: widget.arguments.chatId,
                       otherUserId: widget.arguments.otherUserId,
+                      quickReaction: quickReaction,
                     ),
                   ],
-                );
-              },
-            ),
-          ),
+                ),
+              ),
+            );
+          },
         );
       },
     );

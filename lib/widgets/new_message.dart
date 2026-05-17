@@ -15,11 +15,17 @@ class NewMessage extends StatefulWidget {
   const NewMessage({
     super.key,
     required this.chatId,
-    required this.otherUserId,
+    required this.quickReaction,
+    this.otherUserId,
+    this.isGroup = false,
+    this.participantIds = const [],
   });
 
   final String chatId;
-  final String otherUserId;
+  final String? otherUserId;
+  final String quickReaction;
+  final bool isGroup;
+  final List<String> participantIds;
 
   @override
   State<NewMessage> createState() {
@@ -138,36 +144,69 @@ class _NewMessageState extends State<NewMessage> {
     required Map<String, dynamic> extraData,
   }) async {
     final sender = await _resolveSenderProfile();
-    final participants = [sender.user.uid, widget.otherUserId]..sort();
-
-    await FirebaseFirestore.instance
+    final chatRef = FirebaseFirestore.instance
         .collection('private_chats')
-        .doc(widget.chatId)
-        .set({
-          'participants': participants,
-          'updatedAt': Timestamp.now(),
-          'lastMessage': previewText,
-          'lastMessageSenderId': sender.user.uid,
-        }, SetOptions(merge: true));
+        .doc(widget.chatId);
+    final messageData = <String, dynamic>{
+      'type': type,
+      'text': previewText,
+      'createdAt': Timestamp.now(),
+      'userId': sender.user.uid,
+      'username': sender.username,
+      'userImage': sender.userImage ?? '',
+      'readBy': [sender.user.uid],
+      'deletedFor': <String>[],
+      'deletedForEveryone': false,
+      'reactions': <String, String>{},
+      ...extraData,
+    };
 
-    return FirebaseFirestore.instance
-        .collection('private_chats')
-        .doc(widget.chatId)
-        .collection('messages')
-        .add({
-          'type': type,
-          'text': previewText,
-          'createdAt': Timestamp.now(),
-          'userId': sender.user.uid,
-          'username': sender.username,
-          'userImage': sender.userImage ?? '',
-          'recipientId': widget.otherUserId,
-          'readBy': [sender.user.uid],
-          'deletedFor': <String>[],
-          'deletedForEveryone': false,
-          'reactions': <String, String>{},
-          ...extraData,
-        });
+    if (widget.isGroup) {
+      final chatSnapshot = await chatRef.get();
+      final chatData = chatSnapshot.data();
+
+      if (chatData?['isDissolved'] == true ||
+          chatData?['status'] == 'dissolved') {
+        throw Exception('Nhóm đã được giải tán.');
+      }
+
+      final latestParticipants =
+          (chatData?['participants'] is Iterable
+                  ? (chatData!['participants'] as Iterable).whereType<String>()
+                  : widget.participantIds)
+              .toList();
+
+      if (!latestParticipants.contains(sender.user.uid)) {
+        throw Exception('Bạn không còn là thành viên nhóm.');
+      }
+
+      final participants = latestParticipants.toSet().toList()..sort();
+      await chatRef.set({
+        'type': 'group',
+        'isGroup': true,
+        'participants': participants,
+        'updatedAt': Timestamp.now(),
+        'lastMessage': previewText,
+        'lastMessageSenderId': sender.user.uid,
+      }, SetOptions(merge: true));
+      messageData['groupId'] = widget.chatId;
+    } else {
+      final otherUserId = widget.otherUserId;
+      if (otherUserId == null || otherUserId.trim().isEmpty) {
+        throw Exception('Không xác định được người nhận.');
+      }
+
+      final participants = [sender.user.uid, otherUserId]..sort();
+      await chatRef.set({
+        'participants': participants,
+        'updatedAt': Timestamp.now(),
+        'lastMessage': previewText,
+        'lastMessageSenderId': sender.user.uid,
+      }, SetOptions(merge: true));
+      messageData['recipientId'] = otherUserId;
+    }
+
+    return chatRef.collection('messages').add(messageData);
   }
 
   Future<void> _submitMessage() async {
@@ -182,11 +221,32 @@ class _NewMessageState extends State<NewMessage> {
       setState(() {});
     }
 
-    await _sendChatMessage(
-      type: 'text',
-      previewText: enteredMessage,
-      extraData: const {},
-    );
+    try {
+      await _sendChatMessage(
+        type: 'text',
+        previewText: enteredMessage,
+        extraData: const {},
+      );
+    } catch (error) {
+      _showSnackBar(error.toString());
+    }
+  }
+
+  Future<void> _sendQuickReaction() async {
+    final quickReaction = widget.quickReaction.trim();
+    if (quickReaction.isEmpty || _isBusy || _isRecordingVoice) {
+      return;
+    }
+
+    try {
+      await _sendChatMessage(
+        type: 'text',
+        previewText: quickReaction,
+        extraData: const {},
+      );
+    } catch (error) {
+      _showSnackBar(error.toString());
+    }
   }
 
   Future<void> _sendImage(File imageFile) async {
@@ -597,6 +657,9 @@ class _NewMessageState extends State<NewMessage> {
     final theme = Theme.of(context);
     const composerColor = Color(0xFFF0EEF5);
     final showQuickActions = !_hasInputFocus && isTextEmpty;
+    final quickReaction = widget.quickReaction.trim().isEmpty
+        ? '👍'
+        : widget.quickReaction.trim();
 
     Widget buildComposerButton({
       required IconData icon,
@@ -611,6 +674,19 @@ class _NewMessageState extends State<NewMessage> {
         splashRadius: 22,
         visualDensity: VisualDensity.compact,
         constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+      );
+    }
+
+    Widget buildQuickReactionButton() {
+      return InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: (_isBusy || _isRecordingVoice) ? null : _sendQuickReaction,
+        child: Container(
+          width: 42,
+          height: 42,
+          alignment: Alignment.center,
+          child: Text(quickReaction, style: const TextStyle(fontSize: 24)),
+        ),
       );
     }
 
@@ -807,12 +883,12 @@ class _NewMessageState extends State<NewMessage> {
                       ),
                     ),
                   )
+                : isTextEmpty
+                ? buildQuickReactionButton()
                 : buildComposerButton(
-                    onPressed: isTextEmpty ? null : _submitMessage,
+                    onPressed: _submitMessage,
                     icon: Icons.send_rounded,
-                    color: isTextEmpty
-                        ? Colors.grey.shade400
-                        : theme.colorScheme.primary,
+                    color: theme.colorScheme.primary,
                   ),
           ],
         ),

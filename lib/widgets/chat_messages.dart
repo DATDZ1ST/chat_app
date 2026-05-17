@@ -18,7 +18,8 @@ class ChatMessages extends StatefulWidget {
   const ChatMessages({
     super.key,
     required this.chatId,
-    required this.otherUserId,
+    this.otherUserId,
+    this.isGroup = false,
     this.initialMessageId,
   });
 
@@ -32,7 +33,8 @@ class ChatMessages extends StatefulWidget {
   ];
 
   final String chatId;
-  final String otherUserId;
+  final String? otherUserId;
+  final bool isGroup;
   final String? initialMessageId;
 
   @override
@@ -146,7 +148,9 @@ class ChatMessagesState extends State<ChatMessages> {
   }
 
   String _formatCallLogHeader(Map<String, dynamic> messageData) {
-    return _formatMessageTime(messageData['endedAt'] ?? messageData['createdAt']);
+    return _formatMessageTime(
+      messageData['endedAt'] ?? messageData['createdAt'],
+    );
   }
 
   String? _readString(Map<String, dynamic>? data, List<String> keys) {
@@ -243,6 +247,27 @@ class ChatMessagesState extends State<ChatMessages> {
 
     final emailLocalPart = messageUsername.split('@').first.trim();
     return emailLocalPart.isEmpty ? null : emailLocalPart;
+  }
+
+  String? _resolveGroupNickname(
+    Map<String, dynamic>? chatData,
+    String? userId,
+  ) {
+    if (userId == null || userId.isEmpty) {
+      return null;
+    }
+
+    final groupNicknames = chatData?['groupNicknames'];
+    if (groupNicknames is! Map) {
+      return null;
+    }
+
+    final nickname = groupNicknames[userId];
+    if (nickname is String && nickname.trim().isNotEmpty) {
+      return nickname.trim();
+    }
+
+    return null;
   }
 
   String? _resolveUserImage(
@@ -523,11 +548,16 @@ class ChatMessagesState extends State<ChatMessages> {
     required String displayName,
     String? avatarUrl,
   }) {
+    final otherUserId = widget.otherUserId;
+    if (widget.isGroup || otherUserId == null || otherUserId.isEmpty) {
+      return Future.value();
+    }
+
     return Navigator.of(context).pushNamed(
       CallScreen.routeName,
       arguments: CallScreenArguments(
         chatId: widget.chatId,
-        otherUserId: widget.otherUserId,
+        otherUserId: otherUserId,
         isOutgoing: true,
         isVideo: isVideo,
         displayName: displayName,
@@ -600,6 +630,10 @@ class ChatMessagesState extends State<ChatMessages> {
           isMe: isMe,
         );
       case 'call_log':
+        if (widget.isGroup) {
+          return null;
+        }
+
         final callMode =
             _readString(messageData, const ['callMode']) ?? 'voice';
         final callStatus =
@@ -1115,24 +1149,30 @@ class ChatMessagesState extends State<ChatMessages> {
                 }
 
                 String? latestReadMessageId;
-                for (final messageDoc in visibleMessages) {
-                  final messageData = messageDoc.data();
-                  final readBy = List<String>.from(
-                    messageData['readBy'] ?? const [],
-                  );
-                  if (readBy.contains(widget.otherUserId)) {
-                    latestReadMessageId = messageDoc.id;
-                    break;
+                if (!widget.isGroup &&
+                    widget.otherUserId != null &&
+                    widget.otherUserId!.isNotEmpty) {
+                  for (final messageDoc in visibleMessages) {
+                    final messageData = messageDoc.data();
+                    final readBy = List<String>.from(
+                      messageData['readBy'] ?? const [],
+                    );
+                    if (readBy.contains(widget.otherUserId)) {
+                      latestReadMessageId = messageDoc.id;
+                      break;
+                    }
                   }
                 }
 
-                final otherUserProfile = userProfiles[widget.otherUserId];
-                final readReceiptUserImage = _resolveUserImage(
-                  otherUserProfile,
-                  const {},
-                );
-                final readReceiptUsername =
-                    _resolveUsername(otherUserProfile, const {}) ?? 'User';
+                final otherUserProfile = widget.otherUserId == null
+                    ? null
+                    : userProfiles[widget.otherUserId];
+                final readReceiptUserImage = widget.isGroup
+                    ? null
+                    : _resolveUserImage(otherUserProfile, const {});
+                final readReceiptUsername = widget.isGroup
+                    ? 'User'
+                    : _resolveUsername(otherUserProfile, const {}) ?? 'User';
                 final otherUsername = readReceiptUsername;
                 final otherUserImage = readReceiptUserImage;
                 final callLogHeaderVisibility = _buildCallLogHeaderVisibility(
@@ -1163,7 +1203,16 @@ class ChatMessagesState extends State<ChatMessages> {
                         previousMessageUserId == currentMessageUserId;
                     final profileData = userProfiles[currentMessageUserId];
                     final username =
-                        _resolveUsername(profileData, chatMessage) ?? 'User';
+                        (widget.isGroup
+                            ? _resolveGroupNickname(
+                                chatData,
+                                currentMessageUserId is String
+                                    ? currentMessageUserId
+                                    : null,
+                              )
+                            : null) ??
+                        _resolveUsername(profileData, chatMessage) ??
+                        'User';
                     final userImage = _resolveUserImage(
                       profileData,
                       chatMessage,
@@ -1172,6 +1221,8 @@ class ChatMessagesState extends State<ChatMessages> {
                       chatMessage,
                     );
                     final isMe = authenticatedUser.uid == currentMessageUserId;
+                    final showSenderHeader =
+                        widget.isGroup && !isMe && !previousUserIsSame;
                     final messageType = _messageType(chatMessage);
                     final messageText = _messageText(chatMessage);
                     final messageContent = isDeletedForEveryone
@@ -1252,6 +1303,22 @@ class ChatMessagesState extends State<ChatMessages> {
                               textAlign: TextAlign.center,
                               style: TextStyle(
                                 color: Colors.grey[600],
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        if (showSenderHeader)
+                          Padding(
+                            padding: const EdgeInsets.only(
+                              left: 46,
+                              top: 6,
+                              bottom: 0,
+                            ),
+                            child: Text(
+                              username,
+                              style: TextStyle(
+                                color: Colors.grey[700],
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
                               ),

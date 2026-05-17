@@ -1,0 +1,10 @@
+{
+  "turnUrls": [
+    "turn:YOUR_HOST:3478?transport=udp",
+    "turn:YOUR_HOST:3478?transport=tcp",
+    "turns:YOUR_HOST:5349"
+  ],
+  "username": "YOUR_TURN_USERNAME",
+  "credential": "YOUR_TURN_PASSWORD",
+  "forceRelay": true
+}

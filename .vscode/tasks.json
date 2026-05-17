@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "prepare-webrtc-config",
+      "type": "shell",
+      "command": "if (-not (Test-Path env/webrtc.local.json)) { Copy-Item env/webrtc.example.json env/webrtc.local.json }",
+      "problemMatcher": []
+    }
+  ]
+}
